@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Everyone can read all ballots; each visitor can only write their own, in the expected shape.
+    match /votes/{uid} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['order', 'scores', 'known', 'updatedAt'])
+        && request.resource.data.order is list && request.resource.data.order.size() <= 100
+        && request.resource.data.scores is map;
+    }
+  }
+}
