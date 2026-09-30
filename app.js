@@ -1,4 +1,3 @@
-/* Uit index.html gehaald, alleen ter leesbaarheid. De site gebruikt de inline versie in index.html. */
 "use strict";
 /* ---------- roster: owner-only, comes from roster.js in the repo ---------- */
 const ROSTER = (window.ROSTER || []).map((p, i) => ({ id: p.id || String(p.name).toLowerCase().replace(/\W+/g, '-'), name: p.name, subtitle: p.subtitle || '', description: p.description || '', image: p.image || '', snapchat: String(p.snapchat || '').replace(/^@/, '').trim(), createdAt: i }));
@@ -126,14 +125,17 @@ function write(build, okMsg) {
   });
 }
 const known = () => roster.map(p => p.id);
-function submit() {
+async function submit() {
   const sc = myDoc().scores || {};
   const missing = myOrder.filter(id => !rated(sc, id));
   if (missing.length) {
-    shakeIds.clear(); missing.forEach(id => shakeIds.add(id)); openRate.add(missing[0]);
-    setStatus('Set both PSL and Appeal for everyone in your rating list. Missing: ' + missing.map(id => byId(id).name).join(', ') + '.', 'err');
-    requestAnimationFrame(() => { const el = view.querySelector('[data-id="' + missing[0] + '"]'); if (el) el.scrollIntoView({ behavior: RM ? 'auto' : 'smooth', block: 'center' }); });
-    return;
+    const nm = missing.map(id => byId(id).name), shown = nm.slice(0, 6).join(', ') + (nm.length > 6 ? ' +' + (nm.length - 6) + ' more' : '');
+    const go = await confirmBox('Submit without PSL and Appeal?', 'These people are missing a PSL and/or Appeal score: ' + shown + '. Your order still counts, but their PSL and Appeal averages will not include you. You can add scores later and update your ranking.', 'Submit anyway', 'Go back and rate');
+    if (!go) {
+      shakeIds.clear(); missing.forEach(id => shakeIds.add(id)); openRate.add(missing[0]); render();
+      requestAnimationFrame(() => { const el = view.querySelector('[data-id="' + missing[0] + '"]'); if (el) el.scrollIntoView({ behavior: RM ? 'auto' : 'smooth', block: 'center' }); });
+      return;
+    }
   }
   write(d => ({ order: myOrder.slice(), scores: d.scores || {}, known: known() }), 'Ballot saved. Thanks!');
 }
@@ -243,9 +245,9 @@ function mineView() {
   });
   const hasSaved = (myDoc().order || []).length > 0 || submittedOnce;
   const btn = h('button', { class: 'btn', text: hasSaved ? 'Update ranking' : 'Submit ranking', onclick: submit });
-  if (hasSaved && !dirty && done === N) btn.disabled = true;
+  if (hasSaved && !dirty) btn.disabled = true;
   return h('div', {},
-    h('p', { class: 'sub rise', style: '--i:0', text: 'Drag people into your order, best first. Everyone in the Rating list needs both a PSL and an Appeal score before you can submit. People in the Skip list are left out.' }),
+    h('p', { class: 'sub rise', style: '--i:0', text: 'Drag people into your order, best first. PSL and Appeal scores are optional, but you will get a warning if you submit without them. People in the Skip list are left out.' }),
     h('div', { class: 'cols' },
       h('section', { class: 'card rise', style: '--i:1' }, h('h2', { text: 'Rating list · ' + N }),
         h('p', { class: 'sub', text: 'Best at the top: the top spot earns 950 points, the bottom 0. A perfect 1000 is out of reach.' }),
@@ -254,7 +256,7 @@ function mineView() {
         h('p', { class: 'sub', text: 'Left out of your ranking. No ratings needed.' }),
         mySkip.length ? slist : h('p', { class: 'empty', text: 'Nobody skipped. Everyone is in your rating list.' }))),
     h('div', { class: 'submitbar rise', style: '--i:3' },
-      h('div', { class: 'meter' }, h('small', { text: N ? done + ' of ' + N + ' rated' : 'Empty ranking' }), h('div', {}, h('i', { style: '--w:' + (N ? done / N * 100 : 100) + '%' }))),
+      h('div', { class: 'meter' }, h('small', { text: N ? done + ' of ' + N + ' rated (optional)' : 'Empty ranking' }), h('div', {}, h('i', { style: '--w:' + (N ? done / N * 100 : 100) + '%' }))),
       btn, h('div', { class: 'status ' + statusKind + (statusFresh ? ' in' : ''), 'aria-live': 'polite', text: statusMsg })));
 }
 
@@ -480,3 +482,48 @@ addEventListener('pointercancel', () => { sliding = false; });
   storage.onVotes(v => { votes = v; votesLoaded = true; tryInit(); render(); },
     e => { votesError = "Couldn't load everyone's ballots (" + (e.code || e.message) + '). ' + hint(e); syncDiag(); });
 })();
+
+/* ---------- confirm dialog ---------- */
+function confirmBox(title, text, yes, no) {
+  return new Promise(res => {
+    const d = $('#ask'); let val = false;
+    d.replaceChildren(h('div', { class: 'tw' }, h('div', { class: 'tp' }, h('span', { class: 'ic', text: '⚠️' }), h('h2', { text: title }), h('p', { text })),
+      h('div', { class: 'tf' }, h('span', { class: 'sp' }), h('button', { class: 'ghost', text: no, onclick: () => d.close() }), h('button', { class: 'btn', text: yes, onclick: () => { val = true; d.close(); } }))));
+    d.addEventListener('close', () => res(val), { once: true });
+    d.showModal();
+  });
+}
+
+/* ---------- tutorial (auto-shows on the first 2 visits, reopen with the ? button) ---------- */
+const TOUR = [
+  { ic: '👑', t: 'Welcome to Chad Ranking', p: ['A ranking of the friend group, made by the friend group.', 'Everyone puts the others in order. All those personal rankings are merged into one shared ranking that looks the same on every phone and computer.'], li: ['<b>Official Ranking</b>: the result of everybody', '<b>My Ranking</b>: your own vote'] },
+  { ic: '🏆', t: 'The Official Ranking', p: ['The first tab shows the combined result.'], li: ['The <b>top 3</b> stand on the podium: gold, silver and bronze', 'Everybody else follows in the list below, and the ticker scrolls the standings', 'Tap a name to open a <b>profile pop-up</b> with a big photo, points, ranks and the PSL and Appeal averages', 'Updates live when someone votes'] },
+  { ic: '🔢', t: 'How the points work', p: ['Every ballot gives points by position: the top spot earns <b>950</b>, the bottom spot <b>0</b>, and everyone in between gets a fair share.', 'The total you see is the average over all ballots. A perfect 1000 is out of reach, so a score in the 700s or 800s is already very strong. More ballots make the ranking more accurate.'] },
+  { ic: '🗳️', t: 'Your own ranking', p: ['Open the <b>My Ranking</b> tab. It has two lists:'], li: ['<b>Rating list</b>: people you want to rank. Drag them (or use the arrows) with the best at the top', '<b>Skip list</b>: people you do not want to judge. They are left out of your ballot and nothing is needed for them', 'Move people between the lists with the buttons on each row'] },
+  { ic: '🎚️', t: 'PSL and Appeal', p: ['For everybody in your Rating list you can add two scores. Open the small rating window on a row to set them:'], li: ['<b>PSL</b> (1 to 8): the looks score', '<b>Appeal</b> (1 to 10): overall charm and vibe', 'Half points are allowed', 'They do not change the order or the points. They show up as averages in the profile pop-up'] },
+  { ic: '✅', t: 'Submitting your ranking', p: ['Press <b>Submit ranking</b> when your order is ready.', 'PSL and Appeal are <b>optional</b>. If some are missing you get a warning and can still submit anyway, or go back and fill them in.'], li: ['You can change your order later and press <b>Update ranking</b>', 'You get one ballot per browser. Clearing your browser data starts a fresh ballot'] },
+  { ic: '💡', t: 'Good to know', p: [], li: ['The badge at the top says <b>Live</b> when votes are shared, or <b>Offline</b> when something is wrong', 'The sun/moon button switches between dark and light theme', 'Only the owner can change names, photos and descriptions', 'Press the <b>?</b> button at the top any time to see this tutorial again'] }
+];
+function initTour() {
+  const T = $('#tour'); let i = 0;
+  const html = (str) => { const s = document.createElement('span'); s.innerHTML = str; return s; };
+  function draw(back) {
+    const pg = TOUR[i], last = i === TOUR.length - 1;
+    const body = h('div', { class: 'tp' + (back ? ' back' : '') }, h('span', { class: 'ic', text: pg.ic }), h('h2', { text: pg.t }));
+    pg.p.forEach(x => { const p = h('p'); p.append(html(x)); body.append(p); });
+    if (pg.li) { const ul = h('ul'); pg.li.forEach(x => { const li = h('li'); li.append(html(x)); ul.append(li); }); body.append(ul); }
+    const dots = h('div', { class: 'dots' }); TOUR.forEach((_, k) => dots.append(h('i', { class: k === i ? 'on' : '' })));
+    T.replaceChildren(h('div', { class: 'tw' }, body, dots, h('div', { class: 'tf' },
+      last ? null : h('button', { class: 'ghost', text: 'Skip tutorial', onclick: () => T.close() }),
+      h('span', { class: 'sp tcount', text: (i + 1) + ' / ' + TOUR.length }),
+      i ? h('button', { class: 'ghost', text: 'Back', onclick: () => { i--; draw(true); } }) : null,
+      h('button', { class: 'btn', text: last ? 'Start ranking' : 'Next →', onclick: () => { if (last) T.close(); else { i++; draw(false); } } }))));
+  }
+  function open() { i = 0; draw(false); if (!T.open) T.showModal(); }
+  T.addEventListener('keydown', e => { if (e.key === 'ArrowRight' && i < TOUR.length - 1) { i++; draw(false); } else if (e.key === 'ArrowLeft' && i > 0) { i--; draw(true); } });
+  $('#help').addEventListener('click', open);
+  let v = 0, ok = true;
+  try { v = (+localStorage.getItem('chad-visits') || 0) + 1; localStorage.setItem('chad-visits', String(v)); } catch (e) { ok = false; }
+  if (ok && v <= 2) setTimeout(open, 700);
+}
+initTour();

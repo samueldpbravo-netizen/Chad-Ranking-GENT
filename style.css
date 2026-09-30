@@ -1,4 +1,3 @@
-/* Uit index.html gehaald, alleen ter leesbaarheid. De site gebruikt de inline versie in index.html. */
 :root{--display:Unbounded,"Arial Black",system-ui,sans-serif;--body:"Space Grotesk",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--bg:#060b1f;--surface:#0e1838;--surface2:#15265e;--ink:#eef3ff;--muted:#8f9cc6;--line:#22336d;--accent:#ffd23f;--accent-ink:#0a1230;--hi:#ffd23f;--blue:#4f7cff;--ok:#5fe0a0;--err:#ff8a7a;--glow:rgba(255,210,63,.22);--shadow:0 10px 30px rgba(0,0,0,.45);color-scheme:dark;
 box-sizing:border-box;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
 :root[data-theme="light"]{--bg:#f1f5ff;--surface:#fff;--surface2:#e9efff;--ink:#0a1433;--muted:#55628c;--line:#d1dbf5;--accent:#ffc61a;--accent-ink:#0a1433;--hi:#1b45d1;--blue:#1b45d1;--ok:#1d8a55;--err:#c23a25;--glow:rgba(27,69,209,.22);--shadow:0 10px 28px rgba(20,40,110,.12);color-scheme:light}
@@ -14,6 +13,7 @@ main{max-width:1040px;margin:0 auto;padding:22px 16px 60px}
 .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 h1{font:800 clamp(1.7rem,6.2vw,2.9rem)/1.1 var(--display);margin:0;letter-spacing:-.02em}
 h1 .g{background:linear-gradient(100deg,var(--accent),#fff3b0,var(--blue),var(--accent));background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:flow 6s linear infinite}
+.logo{width:1.15em;height:1.15em;border-radius:22%;vertical-align:-.2em;box-shadow:0 4px 18px rgba(255,210,63,.35)}
 .crown{display:inline-block;transform-origin:50% 90%;animation:crown 3.2s ease-in-out infinite}
 .mode{display:inline-flex;align-items:center;gap:6px;font-size:.75rem;color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:3px 10px;background:var(--surface)}
 .mode i{width:8px;height:8px;border-radius:50%;background:var(--muted)}
@@ -185,3 +185,26 @@ a.snap:hover{transform:translateY(-2px) rotate(-2deg);box-shadow:0 6px 18px rgba
 @keyframes winIn{from{opacity:0;transform:translateY(40px) scale(.9) rotateX(12deg)}}
 @keyframes winOut{to{opacity:0;transform:translateY(20px) scale(.95)}}
 @media (prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+
+/* tutorial + confirm */
+#tour,#ask{width:min(520px,calc(100vw - 28px));overflow:hidden;background:var(--surface);border:1px solid var(--line);border-radius:26px;box-shadow:0 30px 90px rgba(0,0,0,.55)}
+#tour[open],#ask[open]{animation:tourPop .4s cubic-bezier(.2,.9,.3,1.25)}
+.tw{padding:26px 24px 20px;display:grid;gap:16px}
+.tp{animation:tourIn .38s cubic-bezier(.2,.8,.3,1) both}
+.tp.back{animation-name:tourInB}
+.tp .ic{font-size:2.8rem;display:inline-block;animation:float 2.6s ease-in-out infinite}
+.tp h2{font-family:var(--display);font-size:1.2rem;line-height:1.25;margin:.3em 0 .4em}
+.tp p{color:var(--muted);margin:.5em 0;line-height:1.55}
+.tp ul{margin:.6em 0 0;padding:0;list-style:none;display:grid;gap:8px}
+.tp li{padding:9px 12px;border-radius:12px;background:var(--surface2);line-height:1.45}
+.tp li b{color:var(--accent)}
+.dots{display:flex;gap:6px;justify-content:center}
+.dots i{width:8px;height:8px;border-radius:9px;background:var(--line);transition:width .35s,background-color .35s}
+.dots i.on{width:26px;background:var(--accent)}
+.tf{display:flex;gap:10px;align-items:center}
+.tf .sp{flex:1}
+.tf .ghost{padding:9px 14px}
+.tcount{font-size:.75rem;color:var(--muted)}
+@keyframes tourPop{from{opacity:0;transform:translateY(24px) scale(.94)}}
+@keyframes tourIn{from{opacity:0;transform:translateX(34px)}}
+@keyframes tourInB{from{opacity:0;transform:translateX(-34px)}}
