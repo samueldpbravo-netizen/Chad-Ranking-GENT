@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Chad Ranking setup check</title>
+<link rel="icon" href="favicon.png">
 <style>
 body{margin:0;background:#060b1f;color:#eef3ff;font:16px/1.5 system-ui,sans-serif;padding:24px}
 main{max-width:720px;margin:0 auto}
@@ -16,6 +17,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#0a1230;padding:8px;bor
 </style>
 <script src="roster.js"></script>
 <script src="config.js"></script>
+<script>window.FIREBASE_CONFIG=window.FIREBASE_CONFIG||{apiKey:"AIzaSyCF3k7BgYWH7vCLbUO9o-LExJ7s7U55Mto",authDomain:"chadrankinggent.firebaseapp.com",projectId:"chadrankinggent",storageBucket:"chadrankinggent.firebasestorage.app",messagingSenderId:"373347978199",appId:"1:373347978199:web:f60d3a99aa28820f03d992",measurementId:"G-R2NYWKBLC5"};</script>
 </head>
 <body>
 <main>
@@ -36,6 +38,7 @@ function step(title) {
 }
 function hint(c) {
   c = String(c);
+  if (/admin-restricted-operation/.test(c)) return 'Firebase blokkeert nieuwe anonieme gebruikers. Firebase > Authentication > Settings > User actions > zet "Enable create (sign-up)" AAN > Save. Controleer ook Sign-in method > Anonymous = Enabled.';
   if (/operation-not-allowed/.test(c)) return 'Firebase > Build > Authentication > Sign-in method > Anonymous > Enable > Save.';
   if (/configuration-not-found/.test(c)) return 'Firebase > Build > Authentication > click "Get started", then enable Anonymous.';
   if (/unauthorized-domain/.test(c)) return 'Firebase > Authentication > Settings > Authorized domains > Add domain: ' + location.hostname;

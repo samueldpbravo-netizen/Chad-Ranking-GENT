@@ -8,7 +8,7 @@ Static site for GitHub Pages. **You are the only one who can change names, pictu
 3. Your site goes live at `https://<you>.github.io/<repo>/`. Do not add collaborators if you want to stay the only editor.
 
 ## Edit names, descriptions, pictures
-- Open `roster.js` on GitHub, click the pencil, change `name`, `subtitle`, `description`, `image`, commit.
+- Open `roster.js` on GitHub, click the pencil, change `name`, `subtitle`, `snapchat` (username, shown as a yellow pill that links to their Snapchat), `description`, `image`, commit.
 - Upload pictures into `images/` (Add file > Upload files) and set `image: 'images/thor.jpg'`. Square photos work best.
 - Never change an `id` after voting starts. Deleting a person drops them from every ballot and average.
 
