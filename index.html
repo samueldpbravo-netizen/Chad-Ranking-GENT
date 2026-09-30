@@ -209,6 +209,7 @@ a.snap:hover{transform:translateY(-2px) rotate(-2deg);box-shadow:0 6px 18px rgba
     <button class="tab" role="tab" data-tab="official">🏆 Official Ranking</button>
     <button class="tab" role="tab" data-tab="mine">🗳️ My Ranking</button>
   </nav>
+  <div id="diag" class="banner" hidden></div>
   <section id="view" aria-live="polite"><div class="skel"></div><div class="skel"></div><div class="skel"></div></section>
 </main>
 <dialog id="dlg" aria-label="Person details"></dialog>
@@ -236,6 +237,7 @@ async function firebaseAdapter(cfg) {
   const base = 'https://www.gstatic.com/firebasejs/10.12.2/';
   const [A, Au, F] = await Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js')]);
   const app = A.initializeApp(cfg), auth = Au.getAuth(app), db = F.getFirestore(app);
+  await auth.authStateReady();
   const uid = (auth.currentUser || (await Au.signInAnonymously(auth)).user).uid;
   return {
     mode: 'shared', userId: uid, canWrite: null,
@@ -256,7 +258,7 @@ const view = $('#view'), dlg = $('#dlg');
 const ptsFor = (i, N) => N > 1 ? (N - 1 - i) / (N - 1) * 100 : 100;
 const fmt = n => Number.isFinite(n) ? n.toFixed(1) : '–';
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
-let storage = localAdapter, notice = '', votesError = '';
+let storage = localAdapter, diagMsg = '', votesError = '';
 let roster = [], votes = {}, rosterLoaded = false, votesLoaded = false;
 let myOrder = [], mySkip = [], dirty = false, mineInit = false, openId = null, tab = 'official';
 let dragging = false, sliding = false, pendingRender = false, statusMsg = '', statusKind = '', statusTimer = null, statusFresh = false, focusKey = null;
@@ -480,7 +482,6 @@ function officialView(a) {
   const top = a.ranked.slice(0, 3), rest = a.ranked.slice(3);
   const stat = (n, label) => h('span', { class: 'stat' }, h('b', { 'data-count': n, 'data-dec': 0, 'data-ck': 's' + label, text: n }), label);
   const out = [];
-  if (notice || votesError) out.push(h('div', { class: 'banner', text: (votesError || '') + notice }));
   if (a.ranked.length) out.push(ticker(a));
   out.push(h('div', { class: 'stats rise', style: '--i:0' }, stat(a.ballots, a.ballots === 1 ? 'ballot' : 'ballots'), stat(roster.length, 'people')));
   if (!a.ranked.length) {
@@ -599,12 +600,27 @@ function countUps(root, fresh) {
 }
 
 /* ---------- chrome: tabs, theme ---------- */
+function hint(e) {
+  const c = String((e && (e.code || e.message)) || e);
+  if (/operation-not-allowed/.test(c)) return 'Anonymous sign-in is not enabled: Firebase > Build > Authentication > Sign-in method > Anonymous > Enable > Save.';
+  if (/configuration-not-found/.test(c)) return 'Authentication is not set up yet: Firebase > Build > Authentication > click Get started, then enable Anonymous.';
+  if (/unauthorized-domain/.test(c)) return 'Your website domain is not authorized: Authentication > Settings > Authorized domains > add yourname.github.io.';
+  if (/api-key|invalid-api|app-not-authorized/.test(c)) return 'The values in config.js look wrong. Copy the config block again from Project settings > General > Your apps.';
+  if (/permission-denied/.test(c)) return 'Firestore rules are missing or not published: Firestore Database > Rules > paste the rules > Publish.';
+  if (/not-found|failed-precondition/.test(c)) return 'Firestore database is not created yet: Build > Firestore Database > Create database.';
+  if (/fetch|import|network/i.test(c)) return 'Could not load Firebase from Google. Check your connection or turn off an ad blocker for this site.';
+  return '';
+}
+function syncDiag() {
+  const el = $('#diag'), t = [diagMsg, votesError].filter(Boolean).join(' ');
+  el.hidden = !t; el.textContent = t;
+}
 function syncTabs() {
   document.querySelectorAll('.tab').forEach(t => { const on = t.dataset.tab === tab; t.classList.toggle('on', on); t.setAttribute('aria-selected', on); });
   const on = document.querySelector('.tab.on'), ind = $('#ind');
   if (on) { ind.style.width = on.offsetWidth + 'px'; ind.style.transform = 'translateX(' + on.offsetLeft + 'px)'; }
   const m = $('#mode'); m.className = 'mode' + (storage.mode === 'shared' ? ' live' : '');
-  m.lastChild.textContent = storage.mode === 'shared' ? 'Live · shared votes' : 'Local only · votes not shared';
+  m.lastChild.textContent = storage.mode === 'shared' ? 'Live · shared votes' : window.FIREBASE_CONFIG ? 'Offline · Firebase error' : 'Offline · no Firebase config';
 }
 function syncTheme() { $('#theme').setAttribute('aria-pressed', document.documentElement.getAttribute('data-theme') === 'light'); }
 $('#theme').addEventListener('click', e => {
@@ -639,7 +655,7 @@ function render() {
   const enter = ready && animate && !RM;
   if (ready && animate) animate = false;
   if (enter) Object.keys(prevNums).forEach(k => delete prevNums[k]);
-  syncTabs();
+  syncTabs(); syncDiag();
   const scrollY = window.scrollY, old = {};
   view.querySelectorAll('[data-flip]').forEach(e => { old[e.dataset.flip] = e.getBoundingClientRect(); });
   let content;
@@ -666,13 +682,15 @@ addEventListener('pointercancel', () => { sliding = false; });
 /* ---------- boot ---------- */
 (async function boot() {
   tab = readTab(); syncTheme(); syncTabs(); splitTitle();
-  if (window.FIREBASE_CONFIG) {
+  if (!window.FIREBASE_CONFIG) {
+    diagMsg = 'Votes are not shared: config.js contains no Firebase settings. Make sure config.js has your config, is committed to the repo, and that you hard refreshed (Ctrl+Shift+R). Open /config.js on your site to check what is really published.';
+  } else {
     try { storage = await firebaseAdapter(window.FIREBASE_CONFIG); }
-    catch (e) { console.warn(e); notice = ' Shared voting failed to start: ' + (e.code || e.message) + '.'; }
+    catch (e) { console.warn(e); diagMsg = 'Shared voting failed to start (' + (e.code || e.message) + '). ' + hint(e); }
   }
   storage.onRoster(list => { roster = list; rosterLoaded = true; tryInit(); render(); });
   storage.onVotes(v => { votes = v; votesLoaded = true; tryInit(); render(); },
-    e => { votesError = "Couldn't load everyone's ballots (" + (e.code || e.message) + '). Check that the Firestore rules from the README are published. '; });
+    e => { votesError = "Couldn't load everyone's ballots (" + (e.code || e.message) + '). ' + hint(e); syncDiag(); });
 })();
 </script>
 </body>
