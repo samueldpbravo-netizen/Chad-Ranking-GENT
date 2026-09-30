@@ -11,5 +11,5 @@ window.ROSTER = [
   { id: 'halewijn', name: 'Halewijn', subtitle: 'Real Jew',          snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
   { id: 'sid',      name: 'Sid',      subtitle: 'De Mannenmuiler',   snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
   { id: 'anakin',   name: 'Anakin',   subtitle: '"#1 Chad"',         snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
-  { id: 'cas',      name: 'Cas',      subtitle: '-',   snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
+  { id: 'cas',      name: 'Cas',      subtitle: '- Not Given -',   snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
 ];
