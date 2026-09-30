@@ -1,4 +1,8 @@
-// Leave as null for single-device mode (votes stay in the visitor's browser).
-// For shared friend voting, paste your Firebase web config here (see README.md):
-// window.FIREBASE_CONFIG = { apiKey: '...', authDomain: '...', projectId: '...', appId: '...' };
-window.FIREBASE_CONFIG = null;
+window.FIREBASE_CONFIG = {
+  apiKey: "AIza...",
+  authDomain: "your-project.firebaseapp.com",
+  projectId: "your-project",
+  storageBucket: "your-project.firebasestorage.app",
+  messagingSenderId: "1234567890",
+  appId: "1:1234567890:web:abcdef"
+};
