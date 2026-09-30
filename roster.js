@@ -7,9 +7,13 @@
 //              Leave '' and nothing is drawn: no placeholder, no empty space.
 // Order here = the default order new voters see.
 window.ROSTER = [
-  { id: 'samuel',   name: 'Samuel',   subtitle: 'Lightest Of Skins', snapchat: 'samuel_dpbravo', description: 'Sint-Lievens College Business', image: '' },
-  { id: 'halewijn', name: 'Halewijn', subtitle: 'Real Jew',          snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
-  { id: 'sid',      name: 'Sid',      subtitle: 'De Mannenmuiler',   snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
-  { id: 'anakin',   name: 'Anakin',   subtitle: '"#1 Chad"',         snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
-  { id: 'cas',      name: 'Cas',      subtitle: '- Not Given -',   snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
+  { id: 'thor',     name: 'Thor',     subtitle: 'Norwegian GOD',   snapchat: '', description: '', image: '' },
+  { id: 'samuel',   name: 'Samuel',   subtitle: '',                snapchat: '', description: '', image: '' },
+  { id: 'halewijn', name: 'Halewijn', subtitle: '',                snapchat: '', description: '', image: '' },
+  { id: 'altug',    name: 'Altug',    subtitle: '',                snapchat: '', description: '', image: '' },
+  { id: 'sid',      name: 'Sid',      subtitle: 'De Mannenmuiler', snapchat: '', description: '', image: '' },
+  { id: 'ramih',    name: 'Ramih',    subtitle: 'True Jester',     snapchat: '', description: '', image: '' },
+  { id: 'zoubayer', name: 'Zoubayer', subtitle: 'The Cute Bear',   snapchat: '', description: '', image: '' },
+  { id: 'effe',     name: 'Effé',     subtitle: 'The NTT',         snapchat: '', description: '', image: '' },
+  { id: 'ferre',    name: 'Ferre',    subtitle: '',                snapchat: '', description: '', image: '' }
 ];

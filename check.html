@@ -39,8 +39,8 @@ function step(title) {
 function hint(c) {
   c = String(c);
   if (/admin-restricted-operation/.test(c)) return 'Firebase blokkeert nieuwe anonieme gebruikers. Firebase > Authentication > Settings > User actions > zet "Enable create (sign-up)" AAN > Save. Controleer ook Sign-in method > Anonymous = Enabled.';
-  if (/operation-not-allowed/.test(c)) return 'Firebase > Build > Authentication > Sign-in method > Anonymous > Enable > Save.';
-  if (/configuration-not-found/.test(c)) return 'Firebase > Build > Authentication > click "Get started", then enable Anonymous.';
+  if (/operation-not-allowed/.test(c)) return 'Firebase > Build > Authentication > Sign-in method > Add new provider > Email/Password > Enable > Save.';
+  if (/configuration-not-found/.test(c)) return 'Firebase > Build > Authentication > click "Get started", then enable Email/Password.';
   if (/unauthorized-domain/.test(c)) return 'Firebase > Authentication > Settings > Authorized domains > Add domain: ' + location.hostname;
   if (/api-key|invalid-api|app-not-authorized/.test(c)) return 'The apiKey in config.js is wrong. Copy the config again from Project settings > General > Your apps.';
   if (/permission-denied/.test(c)) return 'Firestore Database > Rules tab > paste the rules from firestore.rules > Publish.';
@@ -82,29 +82,26 @@ function hint(c) {
     s.ok('Loaded');
   } catch (e) { return s.bad(String(e), 'Your browser or an ad blocker blocked www.gstatic.com. Try another browser or turn the blocker off for this site.'); }
 
-  s = step('Anonymous sign-in works');
-  let app, auth, db, uid;
+  s = step('Email/password sign-in is enabled');
+  let auth, db;
   try {
-    app = A.initializeApp(c); auth = Au.getAuth(app); db = F.getFirestore(app);
-    await auth.authStateReady();
-    uid = (auth.currentUser || (await Au.signInAnonymously(auth)).user).uid;
-    s.ok('Signed in as ' + uid);
+    const app = A.initializeApp(c); auth = Au.getAuth(app); db = F.getFirestore(app);
+    try { await Au.signInWithEmailAndPassword(auth, 'setup-check@example.invalid', 'not-a-real-password'); }
+    catch (e) { if (/operation-not-allowed|configuration-not-found/.test(e.code)) throw e; }
+    s.ok('Enabled');
   } catch (e) { return s.bad(e.code || e.message, hint(e.code || e.message)); }
 
-  s = step('Firestore accepts a ballot write');
+  s = step('New Firestore rules are published');
   try {
-    await F.setDoc(F.doc(db, 'votes', uid), { order: [], scores: {}, known: [], updatedAt: Date.now() });
-    s.ok('Wrote a harmless empty ballot for this device (it does not count as a vote).');
-  } catch (e) { return s.bad(e.code || e.message, hint(e.code || e.message)); }
-
-  s = step('Firestore lets everyone read all ballots');
-  try {
-    const snap = await F.getDocs(F.collection(db, 'votes'));
-    s.ok(snap.size + ' ballot document(s) visible in the database.');
-  } catch (e) { return s.bad(e.code || e.message, hint(e.code || e.message)); }
+    await F.getDocs(F.collection(db, 'votes'));
+    return s.bad('Anyone can still read all ballots, so the old rules are active.', 'Firestore Database > Rules > paste the newest firestore.rules > Publish.');
+  } catch (e) {
+    if (e.code === 'permission-denied') s.ok('Locked: only verified, logged-in accounts can read ballots.');
+    else return s.bad(e.code || e.message, hint(e.code || e.message));
+  }
 
   const done = document.createElement('div'); done.className = 'step ok';
-  done.innerHTML = '<b>🎉 Everything works</b><span>Open index.html on your site and hard refresh (Ctrl+Shift+R). The badge should read "Live · shared votes".</span>';
+  done.innerHTML = '<b>🎉 Everything works</b><span>Last manual step: Authentication > Users > Add user: admin@chadranking.app with your admin password. Then open the site, sign up and verify your email.</span>';
   out.append(done);
 })();
 </script>

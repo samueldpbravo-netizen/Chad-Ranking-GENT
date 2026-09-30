@@ -1,13 +1,38 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Everyone can read all ballots; each visitor can only write their own, in the expected shape.
+    function signedIn() { return request.auth != null && request.auth.token.email != null; }
+    function isAdmin() { return signedIn() && request.auth.token.email == 'admin@chadranking.app'; }
+    function isBanned() { return exists(/databases/$(database)/documents/banned/$(request.auth.token.email)); }
+    function okUser() { return signedIn() && request.auth.token.email_verified == true && !isBanned(); }
+
+    // people list: everyone logged in can read, only the admin can change
+    match /roster/{id} {
+      allow read: if isAdmin() || okUser();
+      allow write: if isAdmin();
+    }
+    // ballots: one per account, only verified and not banned accounts can write their own
     match /votes/{uid} {
-      allow read: if true;
-      allow write: if request.auth != null && request.auth.uid == uid
+      allow read: if isAdmin() || okUser();
+      allow create, update: if okUser() && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['order', 'scores', 'known', 'updatedAt'])
         && request.resource.data.order is list && request.resource.data.order.size() <= 100
         && request.resource.data.scores is map;
+      allow delete: if isAdmin();
+    }
+    // name + email of each account: only the owner of the account and the admin can read
+    match /profiles/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'email', 'createdAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
+        && request.resource.data.email == request.auth.token.email;
+      allow delete: if isAdmin();
+    }
+    // banned emails (document id = lowercase email)
+    match /banned/{email} {
+      allow read: if isAdmin() || (signedIn() && request.auth.token.email == email);
+      allow write: if isAdmin();
     }
   }
 }

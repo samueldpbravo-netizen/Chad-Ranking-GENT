@@ -17,22 +17,6 @@ const localAdapter = (() => {
     async setMyVote(doc) { const v = votes(); v.local = doc; LS.set('chad:votes', v); vcb.forEach(f => f(v)); }
   };
 })();
-async function firebaseAdapter(cfg) {
-  const base = 'https://www.gstatic.com/firebasejs/10.12.2/';
-  const [A, Au, F] = await Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js')]);
-  const app = A.initializeApp(cfg), auth = Au.getAuth(app), db = F.getFirestore(app);
-  await auth.authStateReady();
-  const uid = (auth.currentUser || (await Au.signInAnonymously(auth)).user).uid;
-  return {
-    mode: 'shared', userId: uid, canWrite: null,
-    onRoster(cb) { setTimeout(() => cb(ROSTER), 0); },
-    onVotes(cb, onErr) {
-      F.onSnapshot(F.collection(db, 'votes'), snap => { const o = {}; snap.forEach(d => o[d.id] = d.data()); cb(o); },
-        e => { onErr && onErr(e); cb({}); });
-    },
-    setMyVote(d) { return F.setDoc(F.doc(db, 'votes', uid), d); }
-  };
-}
 
 /* ---------- constants & state ---------- */
 const DEF = { psl: 4, appeal: 5 };
@@ -40,8 +24,8 @@ const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = s => document.querySelector(s);
 const view = $('#view'), dlg = $('#dlg');
 const ptsFor = (i, N) => N > 1 ? (N - 1 - i) / (N - 1) * 100 : 100;
-const TOP = 950; // realistic ceiling: 1000 is out of reach
-const tot = v => v * TOP / 100, T0 = v => Math.round(tot(v));
+// realistic score: 350 (last) to 870 (unanimous first), always with 2 decimals, never 0
+const tot = v => 350 + 520 * Math.pow(Math.min(100, Math.max(0, v)) / 100, 0.9), T0 = v => tot(v).toFixed(2);
 const fmt = n => Number.isFinite(n) ? n.toFixed(1) : '–';
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 let storage = localAdapter, diagMsg = '', votesError = '';
@@ -218,7 +202,7 @@ function snap(p, big) {
     onclick: e => e.stopPropagation(), 'aria-label': 'Snapchat ' + p.snapchat }, h('span', { class: 'gh', text: '👻' }), '@' + p.snapchat);
 }
 function nameBlock(p) {
-  return h('div', { class: 'who' }, h('button', { class: 'link', text: p.name, onclick: () => showPerson(p.id) }), p.subtitle ? h('small', { text: p.subtitle }) : null, snap(p));
+  return h('div', { class: 'who' }, h('button', { class: 'link', text: p.name, onclick: () => showPerson(p.id) }), p.subtitle ? h('small', { text: p.subtitle }) : null, p.description ? h('small', { class: 'pdesc', text: p.description }) : null);
 }
 function mineView() {
   const sc = myDoc().scores || {}, N = myOrder.length, done = myOrder.filter(id => rated(sc, id)).length;
@@ -250,7 +234,7 @@ function mineView() {
     h('p', { class: 'sub rise', style: '--i:0', text: 'Drag people into your order, best first. PSL and Appeal scores are optional, but you will get a warning if you submit without them. People in the Skip list are left out.' }),
     h('div', { class: 'cols' },
       h('section', { class: 'card rise', style: '--i:1' }, h('h2', { text: 'Rating list · ' + N }),
-        h('p', { class: 'sub', text: 'Best at the top: the top spot earns 950 points, the bottom 0. A perfect 1000 is out of reach.' }),
+        h('p', { class: 'sub', text: 'Best at the top. Your first pick is worth ' + T0(100) + ' points, your last pick ' + T0(0) + '.' }),
         N ? rlist : h('p', { class: 'empty', text: 'Nobody here yet. Bring people over from the Skip list, or submit an empty ranking.' })),
       h('section', { class: 'card rise', style: '--i:2' }, h('h2', { text: 'Skip list · ' + mySkip.length }),
         h('p', { class: 'sub', text: 'Left out of your ranking. No ratings needed.' }),
@@ -283,8 +267,7 @@ function officialView(a) {
       return h('button', { class: 'pod glow p' + (i + 1), 'data-rank': i + 1, 'data-flip': 'gen:' + s.p.id, style: '--i:' + i, 'aria-label': 'Open ' + s.p.name, onclick: () => showPerson(s.p.id) },
         i === 0 ? h('span', { class: 'crownbig', text: '👑' }) : null, h('span', { class: 'medal', text: i + 1 }), face(s.p),
         h('div', { class: 'pn', text: s.p.name }), s.p.subtitle ? h('small', { text: s.p.subtitle }) : null,
-        s.p.snapchat ? h('small', { class: 'snap', text: '👻 @' + s.p.snapchat }) : null,
-        h('div', { class: 'pp', 'data-count': tot(s.ptsAvg), 'data-dec': 0, 'data-ck': 'g' + s.p.id, text: T0(s.ptsAvg) }),
+        h('div', { class: 'pp', 'data-count': tot(s.ptsAvg), 'data-dec': 2, 'data-ck': 'g' + s.p.id, text: T0(s.ptsAvg) }),
         h('small', { text: 'pts · ' + s.n + (s.n === 1 ? ' ballot' : ' ballots') }));
     })));
     if (rest.length) {
@@ -293,8 +276,8 @@ function officialView(a) {
         list.append(h('li', { class: 'row glow click', 'data-flip': 'gen:' + s.p.id, style: '--i:' + j, onclick: () => showPerson(s.p.id) },
           h('span', { class: 'rk', text: j + 4 }), face(s.p),
           h('div', { class: 'who' }, h('button', { class: 'link', text: s.p.name, onclick: e => { e.stopPropagation(); showPerson(s.p.id); } }),
-            s.p.subtitle ? h('small', { text: s.p.subtitle }) : null, snap(s.p), h('div', { class: 'pbar' }, h('i', { style: '--w:' + s.ptsAvg + '%' }))),
-          h('span', { class: 'score' }, h('b', { 'data-count': tot(s.ptsAvg), 'data-dec': 0, 'data-ck': 'g' + s.p.id, text: T0(s.ptsAvg) }), h('small', { text: 'pts · ' + s.n + (s.n === 1 ? ' ballot' : ' ballots') }))));
+            s.p.subtitle ? h('small', { text: s.p.subtitle }) : null, h('div', { class: 'pbar' }, h('i', { style: '--w:' + s.ptsAvg + '%' }))),
+          h('span', { class: 'score' }, h('b', { 'data-count': tot(s.ptsAvg), 'data-dec': 2, 'data-ck': 'g' + s.p.id, text: T0(s.ptsAvg) }), h('small', { text: 'pts · ' + s.n + (s.n === 1 ? ' ballot' : ' ballots') }))));
       });
       out.push(h('div', { class: 'card rise', style: '--i:3' }, list));
     }
@@ -325,8 +308,8 @@ function fillDialog(swap) {
   const body = h('div', { class: 'mbody' + (swap ? ' swap' : '') }, img,
     h('div', { class: 'minfo' }, h('h2', { text: p.name }), p.subtitle ? h('div', { class: 'msub', text: p.subtitle }) : null, snap(p, true),
       p.description ? h('p', { class: 'desc', text: p.description }) : null,
-      h('div', { class: 'big', 'data-count': tot(s.ptsAvg ?? 0), 'data-dec': 0, 'data-ck': 'm', text: s.ptsAvg == null ? '–' : T0(s.ptsAvg) }),
-      h('p', { class: 'sub', text: 'points out of 1000 · higher is better' }),
+      h('div', { class: 'big', 'data-count': tot(s.ptsAvg ?? 0), 'data-dec': 2, 'data-ck': 'm', text: s.ptsAvg == null ? '–' : T0(s.ptsAvg) }),
+      h('p', { class: 'sub', text: 'points · higher is better' }),
       h('div', { class: 'tiles' },
         tile('Overall rank', a.ov.m[openId] ? '#' + a.ov.m[openId] + ' of ' + a.ov.total : 'Not ranked yet', s.n + (s.n === 1 ? ' ballot' : ' ballots'), s.ptsAvg),
         tile('PSL', s.psl == null ? '–' : fmt(s.psl) + ' / 8', (a.pr.m[openId] ? '#' + a.pr.m[openId] + ' of ' + a.pr.total + ' · ' : '') + s.pn + ' votes', s.psl == null ? 0 : s.psl / 8 * 100),
@@ -359,11 +342,21 @@ const fx = (() => {
     dots.forEach(d => { d.x += d.vx; d.y += d.vy; d.t += .02; if (d.y < -5) { d.y = H + 5; d.x = Math.random() * W; }
       c.globalAlpha = .3 + .3 * Math.sin(d.t); c.fillStyle = cols[0]; c.beginPath(); c.arc(d.x, d.y, d.r, 0, 7); c.fill(); });
     bits = bits.filter(p => p.l > 0);
-    bits.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += .13; p.l--; p.a += .2;
-      c.globalAlpha = Math.max(0, p.l / 70); c.fillStyle = p.c; c.save(); c.translate(p.x, p.y); c.rotate(p.a); c.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); c.restore(); });
+    bits.forEach(p => { if (p.d) { p.vx *= .985; p.vy = Math.min(p.vy, 4.5); p.x += Math.sin(p.a) * 1.3; } p.x += p.vx; p.y += p.vy; p.vy += .13; p.l--; p.a += .2;
+      c.globalAlpha = Math.min(1, Math.max(0, p.l / 40)); c.fillStyle = p.c; c.save(); c.translate(p.x, p.y); c.rotate(p.a); c.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); c.restore(); });
   })();
+  const PAL = ['#ffd23f', '#4f7cff', '#ffffff', '#ff6b6b', '#2ee6a6', '#c77dff'];
+  const piece = (x, y, vx, vy, l, d) => bits.push({ x, y, vx, vy, l, c: PAL[Math.random() * PAL.length | 0], s: Math.random() * 9 + 5, a: Math.random() * 6, d });
+  function party() {
+    if (RM) return; cv.classList.add('top');
+    const shoot = () => { const x = W * (.12 + Math.random() * .76), y = H * (.2 + Math.random() * .35); for (let k = 0; k < 70; k++) { const an = Math.random() * 6.283, sp = Math.random() * 9 + 3; piece(x, y, Math.cos(an) * sp, Math.sin(an) * sp - 5, 80); } };
+    for (let k = 0; k < 7; k++) setTimeout(shoot, k * 260);
+    for (let w = 0; w < 3; w++) setTimeout(() => { for (let k = 0; k < 70; k++) piece(Math.random() * W, -20 - Math.random() * 160, (Math.random() - .5) * 2, Math.random() * 2 + 1.5, 230, true); }, w * 500);
+    setTimeout(() => cv.classList.remove('top'), 6500);
+  }
+  function trail(x, y) { if (RM) return; bits.push({ x, y, vx: (Math.random() - .5) * .8, vy: -Math.random() * .8, l: 28, c: cols[0], s: 5, a: 0 }); }
   addEventListener('resize', size);
-  return { colors, burst(x, y) { if (RM) return; for (let i = 0; i < 90; i++) { const an = Math.random() * 6.283, sp = Math.random() * 8 + 2; bits.push({ x, y, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp - 6, l: 70, c: cols[i % 3], s: Math.random() * 8 + 4, a: 0 }); } } };
+  return { colors, party, trail, burst(x, y) { if (RM) return; for (let i = 0; i < 90; i++) { const an = Math.random() * 6.283, sp = Math.random() * 8 + 2; bits.push({ x, y, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp - 6, l: 70, c: cols[i % 3], s: Math.random() * 8 + 4, a: 0 }); } } };
 })();
 document.addEventListener('pointermove', e => {
   const g = e.target.closest && e.target.closest('.glow'); if (!g) return;
@@ -391,12 +384,11 @@ function countUps(root, fresh) {
 /* ---------- chrome: tabs, theme ---------- */
 function hint(e) {
   const c = String((e && (e.code || e.message)) || e);
-  if (/admin-restricted-operation/.test(c)) return 'Firebase blokkeert nieuwe anonieme gebruikers. Firebase > Authentication > Settings > User actions > zet "Enable create (sign-up)" AAN > Save. Controleer ook Sign-in method > Anonymous = Enabled.';
-  if (/operation-not-allowed/.test(c)) return 'Anonymous sign-in is not enabled: Firebase > Build > Authentication > Sign-in method > Anonymous > Enable > Save.';
-  if (/configuration-not-found/.test(c)) return 'Authentication is not set up yet: Firebase > Build > Authentication > click Get started, then enable Anonymous.';
+  if (/operation-not-allowed/.test(c)) return 'Email sign-in is off: Firebase > Authentication > Sign-in method > Add new provider > Email/Password > Enable > Save.';
+  if (/configuration-not-found/.test(c)) return 'Authentication is not set up: Firebase > Authentication > Get started, then enable Email/Password.';
   if (/unauthorized-domain/.test(c)) return 'Your website domain is not authorized: Authentication > Settings > Authorized domains > add yourname.github.io.';
   if (/api-key|invalid-api|app-not-authorized/.test(c)) return 'The values in config.js look wrong. Copy the config block again from Project settings > General > Your apps.';
-  if (/permission-denied/.test(c)) return 'Firestore rules are missing or not published: Firestore Database > Rules > paste the rules > Publish.';
+  if (/permission-denied/.test(c)) return 'Access denied. Publish the newest firestore.rules (Firestore Database > Rules > Publish) and make sure your email is verified and not banned.';
   if (/not-found|failed-precondition/.test(c)) return 'Firestore database is not created yet: Build > Firestore Database > Create database.';
   if (/fetch|import|network/i.test(c)) return 'Could not load Firebase from Google. Check your connection or turn off an ad blocker for this site.';
   return '';
@@ -435,7 +427,7 @@ function splitTitle() {
   [...t].forEach((c, i) => w.append(h('span', { class: 'ch', style: '--d:' + i, text: c })));
 }
 function readTab() { return location.hash === '#mine' ? 'mine' : 'official'; }
-addEventListener('hashchange', () => { tab = readTab(); animate = true; window.scrollTo(0, 0); render(); });
+addEventListener('hashchange', () => { if ((location.hash === '#admin') !== isAdminRoute) { location.reload(); return; } tab = readTab(); animate = true; window.scrollTo(0, 0); render(); });
 addEventListener('resize', syncTabs);
 
 /* ---------- render ---------- */
@@ -462,6 +454,7 @@ function render() {
     if (Math.abs(dx) + Math.abs(dy) > 1) e.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: 'none' }], { duration: 450, easing: 'cubic-bezier(.2,.8,.2,1)' });
   });
   countUps(view, enter);
+  if (tourDue && ready && !coach && !isAdminRoute) { tourDue = false; setTimeout(startTour, 900); }
   if (dlg.open && openId) fillDialog(false);
   if (focusKey) { const b = view.querySelector('[data-key="' + focusKey + '"]'); if (b) b.focus(); focusKey = null; }
 }
@@ -469,18 +462,382 @@ document.addEventListener('pointerdown', e => { if (e.target.type === 'range') s
 addEventListener('pointerup', () => { sliding = false; if (!dragging && pendingRender) { pendingRender = false; setTimeout(render, 60); } });
 addEventListener('pointercancel', () => { sliding = false; });
 
+/* ---------- firebase, login, admin, tutorial ---------- */
+const ADMIN_EMAIL = 'admin@chadranking.app';
+const isAdminRoute = location.hash === '#admin';
+let FB = null, started = false, tourDue = false, coach = null, vt = 0;
+async function fbLoad() {
+  const base = 'https://www.gstatic.com/firebasejs/10.12.2/';
+  const [A, Au, F] = await Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js')]);
+  return { A, Au, F };
+}
+async function fbInit(cfg) {
+  const m = await fbLoad(), app = m.A.initializeApp(cfg), auth = m.Au.getAuth(app);
+  await auth.authStateReady();
+  return { ...m, app, auth, db: m.F.getFirestore(app) };
+}
+const person = (id, x, i) => ({ id, name: String(x.name || ''), subtitle: String(x.subtitle || ''), description: String(x.description || ''), image: String(x.image || ''),
+  snapchat: String(x.snapchat || '').replace(/^@/, '').trim(), createdAt: Number.isFinite(x.order) ? x.order : i });
+function sharedAdapter(fb, uid) {
+  const { F, db } = fb;
+  return {
+    mode: 'shared', userId: uid, canWrite: null,
+    onRoster(cb, onErr) {
+      F.onSnapshot(F.collection(db, 'roster'), snap => {
+        let seeded = false; const l = [];
+        snap.forEach(d => { if (d.id === '__init') seeded = true; else l.push(person(d.id, d.data(), 0)); });
+        cb(seeded ? l.sort((a, b) => a.createdAt - b.createdAt || a.name.localeCompare(b.name)) : ROSTER);
+      }, e => { onErr && onErr(e); cb(ROSTER); });
+    },
+    onVotes(cb, onErr) {
+      F.onSnapshot(F.collection(db, 'votes'), snap => { const o = {}; snap.forEach(d => o[d.id] = d.data()); cb(o); }, e => { onErr && onErr(e); cb({}); });
+    },
+    setMyVote(d) { return F.setDoc(F.doc(db, 'votes', uid), d); }
+  };
+}
+function countVisit() {
+  try { const v = (+localStorage.getItem('chad-visits') || 0) + 1; localStorage.setItem('chad-visits', String(v)); tourDue = v <= 2; } catch (e) {}
+}
+function hook() {
+  countVisit();
+  storage.onRoster(list => { roster = list; rosterLoaded = true; tryInit(); render(); },
+    e => { diagMsg = "Couldn't load the people list (" + (e.code || e.message) + '). ' + hint(e); syncDiag(); });
+  storage.onVotes(v => { votes = v; votesLoaded = true; tryInit(); render(); },
+    e => { votesError = "Couldn't load everyone's ballots (" + (e.code || e.message) + '). ' + hint(e); syncDiag(); });
+}
+
+/* ----- login gate: name + email + password, email must be verified ----- */
+const gate = $('#gate');
+const authErr = e => {
+  const c = String((e && e.code) || e);
+  if (/email-already-in-use/.test(c)) return 'That email already has an account. Use Log in instead.';
+  if (/invalid-credential|wrong-password|user-not-found|invalid-login/.test(c)) return 'Wrong email or password.';
+  if (/invalid-email/.test(c)) return 'That email address does not look right.';
+  if (/weak-password/.test(c)) return 'Password is too short. Use at least 6 characters.';
+  if (/too-many-requests/.test(c)) return 'Too many tries. Wait a minute and try again.';
+  if (/operation-not-allowed/.test(c)) return 'Email sign-in is switched off in Firebase: Authentication > Sign-in method > Email/Password > Enable.';
+  if (/network/.test(c)) return 'No connection. Check your internet and try again.';
+  return 'Something went wrong (' + c + ').';
+};
+function gateShell(...kids) {
+  clearInterval(vt); gate.hidden = false; document.body.classList.add('gated'); $('main').inert = true;
+  gate.replaceChildren(h('div', { class: 'gcard' }, h('img', { class: 'glogo', src: 'logo.png', alt: '', width: 88, height: 88 }), h('h2', { class: 'gtitle', text: 'Chad Ranking' }), ...kids));
+}
+async function logout() { try { await FB.Au.signOut(FB.auth); } catch (e) {} location.reload(); }
+function showAuthForm(mode, note) {
+  const signup = mode === 'signup';
+  const mk = (ph, type, ac, more) => h('input', Object.assign({ type, placeholder: ph, 'aria-label': ph, autocomplete: ac }, more || {}));
+  const name = mk('Your name', 'text', 'name', { maxlength: 30 });
+  const email = mk('Email address', 'email', 'email', { inputmode: 'email', autocapitalize: 'off' });
+  const pw = mk(signup ? 'Choose a password (min. 6)' : 'Password', 'password', signup ? 'new-password' : 'current-password');
+  const err = h('p', { class: 'gerr', 'aria-live': 'polite', text: note || '' });
+  const go = h('button', { class: 'btn', type: 'submit', text: signup ? 'Create account' : 'Log in' });
+  const seg = h('div', { class: 'seg' },
+    h('button', { type: 'button', class: signup ? 'on' : '', text: 'Sign up', onclick: () => showAuthForm('signup') }),
+    h('button', { type: 'button', class: signup ? '' : 'on', text: 'Log in', onclick: () => showAuthForm('login') }));
+  const form = h('form', { class: 'gform', novalidate: true }, signup ? name : null, email, pw, err, go);
+  const validEmail = v => /^\S+@\S+\.\S+$/.test(v);
+  form.addEventListener('submit', async ev => {
+    ev.preventDefault(); err.textContent = '';
+    const nm = name.value.trim().replace(/\s+/g, ' '), em = email.value.trim().toLowerCase(), pv = pw.value;
+    if (signup && nm.length < 2) { err.textContent = 'Please enter your name.'; return; }
+    if (!validEmail(em)) { err.textContent = 'Enter a valid email address.'; return; }
+    if (em === ADMIN_EMAIL) { err.textContent = 'That email is reserved.'; return; }
+    if (pv.length < 6) { err.textContent = 'Password needs at least 6 characters.'; return; }
+    go.classList.add('busy');
+    const { Au, F, auth, db } = FB;
+    try {
+      if (signup) {
+        const cred = await Au.createUserWithEmailAndPassword(auth, em, pv);
+        await Au.updateProfile(cred.user, { displayName: nm });
+        await F.setDoc(F.doc(db, 'profiles', cred.user.uid), { name: nm, email: em, createdAt: Date.now() });
+        await Au.sendEmailVerification(cred.user);
+      } else await Au.signInWithEmailAndPassword(auth, em, pv);
+    } catch (e) { err.textContent = authErr(e); go.classList.remove('busy'); }
+  });
+  const reset = async () => {
+    const em = email.value.trim().toLowerCase();
+    if (!validEmail(em)) { err.textContent = 'Type your email above first.'; return; }
+    try { await FB.Au.sendPasswordResetEmail(FB.auth, em); err.textContent = 'If that email has an account, a reset link is on its way.'; } catch (e) { err.textContent = authErr(e); }
+  };
+  gateShell(h('p', { class: 'gsub', text: signup ? 'Create an account with your name and email. One verified email gives you one ballot.' : 'Welcome back. Log in to see the ranking.' }),
+    seg, form, signup ? null : h('button', { class: 'glink', type: 'button', text: 'Forgot password?', onclick: reset }));
+  setTimeout(() => (signup ? name : email).focus(), 350);
+}
+function showVerify(u) {
+  const msg = h('p', { class: 'gerr' });
+  const resend = h('button', { class: 'ghost', text: 'Resend email' });
+  resend.addEventListener('click', async () => {
+    resend.disabled = true; msg.textContent = '';
+    try { await FB.Au.sendEmailVerification(u); msg.textContent = 'Sent again. Check your inbox and spam folder.'; } catch (e) { msg.textContent = authErr(e); }
+    setTimeout(() => { resend.disabled = false; }, 30000);
+  });
+  const check = async () => { try { await FB.Au.reload(u); } catch (e) {} if (u.emailVerified) { clearInterval(vt); proceed(u); return true; } return false; };
+  gateShell(h('p', { class: 'gsub' }, 'We sent a verification link to ', h('b', { class: 'sel', text: u.email }), '. Open it (check spam too) and this page continues by itself.'), msg,
+    h('button', { class: 'btn', text: 'I verified, continue', onclick: async () => { if (!(await check())) msg.textContent = 'Not verified yet. Open the link in the email first.'; } }),
+    resend, h('button', { class: 'glink', text: 'Use another account', onclick: logout }));
+  vt = setInterval(check, 4000);
+}
+function showBanned() {
+  gateShell(h('p', { class: 'gsub', text: 'This email address has been banned from Chad Ranking.' }), h('button', { class: 'ghost', text: 'Log out', onclick: logout }));
+}
+function showProblem(e) {
+  gateShell(h('p', { class: 'gerr', text: 'Could not finish logging in (' + (e.code || e.message) + '). ' + hint(e) }),
+    h('button', { class: 'btn', text: 'Try again', onclick: () => location.reload() }), h('button', { class: 'glink', text: 'Log out', onclick: logout }));
+}
+async function handleUser(u) {
+  if (started) return;
+  if (!u) { let has = false; try { has = !!localStorage.getItem('chad-has-account'); } catch (e) {} showAuthForm(has ? 'login' : 'signup'); return; }
+  if (u.isAnonymous) { try { await FB.Au.signOut(FB.auth); } catch (e) {} return; }
+  if (String(u.email).toLowerCase() === ADMIN_EMAIL) { try { await FB.Au.signOut(FB.auth); } catch (e) {} showAuthForm('login', 'Use the admin page for that account.'); return; }
+  try { await FB.Au.reload(u); } catch (e) {}
+  if (!u.emailVerified) { showVerify(u); return; }
+  proceed(u);
+}
+async function proceed(u) {
+  if (started) return;
+  try {
+    await u.getIdToken(true);
+    const { F, db } = FB, em = String(u.email).toLowerCase();
+    if ((await F.getDoc(F.doc(db, 'banned', em))).exists()) { showBanned(); return; }
+    if (!(await F.getDoc(F.doc(db, 'profiles', u.uid))).exists())
+      await F.setDoc(F.doc(db, 'profiles', u.uid), { name: String(u.displayName || em.split('@')[0]).slice(0, 40), email: em, createdAt: Date.now() });
+  } catch (e) { console.warn(e); showProblem(e); return; }
+  started = true;
+  try { localStorage.setItem('chad-has-account', '1'); } catch (e) {}
+  storage = sharedAdapter(FB, u.uid);
+  gate.hidden = true; document.body.classList.remove('gated'); $('main').inert = false;
+  const w = $('#whoami'); w.textContent = u.displayName || u.email; w.hidden = false; $('#logout').hidden = false;
+  hook(); syncTabs();
+}
+
+/* ----- admin page (#admin), protected by a Firebase account + password ----- */
+async function adminBoot() {
+  document.body.classList.add('admin'); document.title = 'Chad Ranking Admin';
+  const root = $('#adminroot'); root.hidden = false;
+  const toast = h('div', { class: 'toast', role: 'status' }); let tt = 0;
+  document.body.append(toast);
+  const say = (m, bad) => { toast.textContent = m; toast.className = 'toast on' + (bad ? ' err' : ''); clearTimeout(tt); tt = setTimeout(() => { toast.className = 'toast'; }, 3200); };
+  const lock = msg => {
+    const pw = h('input', { type: 'password', placeholder: 'Admin password', 'aria-label': 'Admin password', autocomplete: 'current-password' });
+    const err = h('p', { class: 'gerr', text: msg || '' });
+    const form = h('form', { class: 'gform', novalidate: true }, pw, err, h('button', { class: 'btn', type: 'submit', text: 'Unlock' }));
+    form.addEventListener('submit', async ev => {
+      ev.preventDefault(); err.textContent = '';
+      if (!AD) return;
+      try { await AD.Au.signInWithEmailAndPassword(AD.auth, ADMIN_EMAIL, pw.value); panel(); }
+      catch (e) {
+        const c = String(e.code || e);
+        err.textContent = /invalid-credential|wrong-password|user-not-found/.test(c) ? 'Wrong password, or the admin account does not exist yet in Firebase (see README).'
+          : /operation-not-allowed/.test(c) ? 'Enable Email/Password in Firebase > Authentication > Sign-in method.' : /too-many/.test(c) ? 'Too many tries. Wait a minute.' : 'Login failed (' + c + ').';
+      }
+    });
+    root.className = ''; root.replaceChildren(h('div', { class: 'gcard' }, h('img', { class: 'glogo', src: 'admin-logo.png', alt: '', width: 88, height: 88 }),
+      h('h2', { class: 'gtitle', text: 'Admin' }), h('p', { class: 'gsub', text: 'Restricted area. Enter the admin password.' }), form,
+      h('button', { class: 'glink', type: 'button', text: 'Back to the ranking', onclick: () => { location.hash = '#official'; } })));
+    setTimeout(() => pw.focus(), 350);
+  };
+  let AD = null;
+  if (!window.FIREBASE_CONFIG) { lock('config.js is missing.'); return; }
+  try {
+    const m = await fbLoad(), app = m.A.initializeApp(window.FIREBASE_CONFIG, 'admin');
+    const auth = m.Au.initializeAuth(app, { persistence: m.Au.browserSessionPersistence });
+    await auth.authStateReady(); AD = { ...m, app, auth, db: m.F.getFirestore(app) };
+  } catch (e) { lock('Could not start Firebase (' + (e.code || e.message) + ').'); return; }
+  if (AD.auth.currentUser && AD.auth.currentUser.email === ADMIN_EMAIL) panel(); else lock();
+
+  function panel() {
+    const { F, db } = AD;
+    const S = { tab: 'people', roster: [], seeded: false, profiles: [], votes: {}, banned: [], err: '' };
+    const cl = (v, n) => String(v || '').trim().slice(0, n);
+    const dref = (c, id) => F.doc(db, c, id);
+    const run = async (fn, ok) => { try { await fn(); if (ok) say(ok); } catch (e) { say(String(e.code || e.message), true); } };
+    const listen = (name, fn) => F.onSnapshot(F.collection(db, name), snap => { fn(snap); S.err = ''; draw(); }, e => { S.err = name + ': ' + (e.code || e.message); draw(); });
+    listen('roster', snap => { S.seeded = false; S.roster = []; snap.forEach(d => { if (d.id === '__init') S.seeded = true; else S.roster.push(person(d.id, d.data(), 0)); }); S.roster.sort((a, b) => a.createdAt - b.createdAt); });
+    listen('profiles', snap => { S.profiles = []; snap.forEach(d => S.profiles.push({ id: d.id, ...d.data() })); S.profiles.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); });
+    listen('votes', snap => { S.votes = {}; snap.forEach(d => { S.votes[d.id] = d.data(); }); });
+    listen('banned', snap => { S.banned = []; snap.forEach(d => S.banned.push({ id: d.id, ...d.data() })); });
+    let pending = false;
+    const isBan = em => S.banned.some(b => b.id === em);
+    const ballotSize = id => ((S.votes[id] || {}).order || []).length;
+    const field = (ph, val, cls) => h('input', { class: 'ainp ' + (cls || ''), placeholder: ph, 'aria-label': ph, value: val || '' });
+    const area = (ph, val) => { const t = h('textarea', { class: 'ainp', placeholder: ph, 'aria-label': ph }); t.value = val || ''; return t; };
+    async function seed() {
+      const b = F.writeBatch(db);
+      ROSTER.forEach((p, i) => b.set(dref('roster', p.id), { name: p.name, subtitle: p.subtitle, description: p.description, image: p.image, snapchat: p.snapchat, order: i }));
+      b.set(dref('roster', '__init'), { seeded: true, at: Date.now() }); await b.commit();
+    }
+    async function banEmail(em, nm) {
+      const pr = S.profiles.find(p => String(p.email).toLowerCase() === em), b = F.writeBatch(db);
+      b.set(dref('banned', em), { email: em, name: nm || (pr && pr.name) || '', at: Date.now() });
+      if (pr && S.votes[pr.id]) b.delete(dref('votes', pr.id));
+      await b.commit();
+    }
+    const peopleTab = () => {
+      const box = h('div', {});
+      if (!S.seeded) {
+        box.append(h('div', { class: 'acard' }, h('h2', { text: 'Take over the people list' }),
+          h('p', { class: 'gsub', text: 'The list still comes from roster.js. Press the button once to copy it into the database. After that you manage everyone here.' }),
+          h('button', { class: 'btn', text: 'Take over roster.js list', onclick: () => run(seed, 'List moved to the database') })));
+        return box;
+      }
+      const n = field('Name', ''), sub = field('Subtitle (optional)', ''), sn = field('Snapchat username (optional)', ''), im = field('Image path, e.g. images/thor.jpg (optional)', ''), ds = area('Description (optional)', '');
+      box.append(h('div', { class: 'acard' }, h('h2', { text: 'Add a person' }), h('div', { class: 'agrid' }, n, sub, sn, im), ds,
+        h('button', { class: 'btn', text: 'Add person', onclick: () => run(async () => {
+          const nm = cl(n.value, 40); if (!nm) throw new Error('Name is required');
+          const id = (nm.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'p') + '-' + Math.random().toString(36).slice(2, 6);
+          const order = S.roster.reduce((m, p) => Math.max(m, p.createdAt), -1) + 1;
+          await F.setDoc(dref('roster', id), { name: nm, subtitle: cl(sub.value, 60), snapchat: cl(sn.value, 40).replace(/^@/, ''), image: cl(im.value, 200), description: cl(ds.value, 600), order });
+        }, 'Added') })));
+      S.roster.forEach((p, i) => {
+        const n2 = field('Name', p.name), s2 = field('Subtitle', p.subtitle), c2 = field('Snapchat username', p.snapchat), i2 = field('Image path', p.image), d2 = area('Description', p.description);
+        const swap = o => run(async () => { const q = S.roster[i + o]; if (!q) return; const b = F.writeBatch(db); b.update(dref('roster', p.id), { order: q.createdAt }); b.update(dref('roster', q.id), { order: p.createdAt }); await b.commit(); });
+        box.append(h('div', { class: 'acard', style: 'animation-delay:' + Math.min(i, 8) * 0.04 + 's' }, h('h2', { text: (i + 1) + '. ' + p.name }), h('div', { class: 'agrid' }, n2, s2, c2, i2), d2,
+          h('div', { class: 'abtns' },
+            h('button', { class: 'btn', text: 'Save', onclick: () => run(async () => {
+              const nm = cl(n2.value, 40); if (!nm) throw new Error('Name is required');
+              await F.setDoc(dref('roster', p.id), { name: nm, subtitle: cl(s2.value, 60), snapchat: cl(c2.value, 40).replace(/^@/, ''), image: cl(i2.value, 200), description: cl(d2.value, 600), order: p.createdAt });
+            }, 'Saved') }),
+            h('button', { class: 'ghost', text: 'Up', onclick: () => swap(-1) }), h('button', { class: 'ghost', text: 'Down', onclick: () => swap(1) }),
+            h('button', { class: 'ghost danger', text: 'Remove', onclick: async () => {
+              if (await confirmBox('Remove ' + p.name + '?', 'They disappear from the list, from every ballot and from all averages. This cannot be undone.', 'Remove', 'Cancel')) run(() => F.deleteDoc(dref('roster', p.id)), 'Removed');
+            } }))));
+      });
+      return box;
+    };
+    const membersTab = () => {
+      const box = h('div', {}); const known = new Set(S.profiles.map(p => p.id));
+      if (!S.profiles.length) box.append(h('p', { class: 'gsub', text: 'Nobody has signed up yet.' }));
+      S.profiles.forEach((p, i) => {
+        const em = String(p.email || '').toLowerCase(), banned = isBan(em), n = ballotSize(p.id);
+        box.append(h('div', { class: 'arow', style: 'animation-delay:' + Math.min(i, 10) * 0.03 + 's' },
+          h('div', { class: 'grow' }, h('b', { text: p.name }), h('small', { class: 'sel', text: em }),
+            h('small', {}, h('span', { class: 'chipx' + (n ? ' ok' : ''), text: n ? 'Ballot: ' + n + ' people' : 'No ballot' }), banned ? h('span', { class: 'chipx bad', text: 'Banned' }) : null)),
+          h('div', { class: 'abtns' },
+            n ? h('button', { class: 'ghost', text: 'Delete ballot', onclick: async () => { if (await confirmBox('Delete ballot?', p.name + "'s ballot is removed from the ranking. They can vote again.", 'Delete', 'Cancel')) run(() => F.deleteDoc(dref('votes', p.id)), 'Ballot deleted'); } }) : null,
+            banned ? h('button', { class: 'ghost', text: 'Unban', onclick: () => run(() => F.deleteDoc(dref('banned', em)), 'Unbanned') })
+              : h('button', { class: 'ghost danger', text: 'Ban', onclick: async () => { if (await confirmBox('Ban ' + p.name + '?', em + ' can no longer enter and their ballot is deleted.', 'Ban', 'Cancel')) run(() => banEmail(em, p.name), 'Banned'); } }))));
+      });
+      Object.keys(S.votes).filter(id => !known.has(id)).forEach(id => box.append(h('div', { class: 'arow' },
+        h('div', { class: 'grow' }, h('b', { text: 'Unknown ballot' }), h('small', { text: 'No account attached (old anonymous ballot). ' + ballotSize(id) + ' people ranked.' })),
+        h('button', { class: 'ghost danger', text: 'Delete', onclick: () => run(() => F.deleteDoc(dref('votes', id)), 'Ballot deleted') }))));
+      return box;
+    };
+    const bannedTab = () => {
+      const em = field('Email to ban', '');
+      const box = h('div', {}, h('div', { class: 'acard' }, h('h2', { text: 'Ban an email' }), em,
+        h('button', { class: 'btn danger', text: 'Ban email', onclick: () => run(async () => {
+          const v = em.value.trim().toLowerCase(); if (!/^\S+@\S+\.\S+$/.test(v)) throw new Error('Enter a valid email'); await banEmail(v, '');
+        }, 'Banned') })));
+      if (!S.banned.length) box.append(h('p', { class: 'gsub', text: 'No banned emails.' }));
+      S.banned.forEach(b => box.append(h('div', { class: 'arow' }, h('div', { class: 'grow' }, h('b', { class: 'sel', text: b.id }), b.name ? h('small', { text: b.name }) : null),
+        h('button', { class: 'ghost', text: 'Unban', onclick: () => run(() => F.deleteDoc(dref('banned', b.id)), 'Unbanned') }))));
+      return box;
+    };
+    const draw = () => {
+      const a = document.activeElement;
+      if (a && root.contains(a) && /^(INPUT|TEXTAREA)$/.test(a.tagName)) { pending = true; return; }
+      pending = false;
+      const tabs = [['people', 'People · ' + S.roster.length], ['members', 'Members · ' + S.profiles.length], ['banned', 'Banned · ' + S.banned.length]];
+      root.className = 'panel';
+      root.replaceChildren(h('div', { class: 'apanel' },
+        h('div', { class: 'ahead' }, h('img', { src: 'admin-logo.png', alt: '' }), h('h1', { text: 'Admin' }), h('span', { class: 'sp' }),
+          h('button', { class: 'ghost', text: 'Back to site', onclick: () => { location.hash = '#official'; } }),
+          h('button', { class: 'ghost', text: 'Lock', onclick: async () => { try { await AD.Au.signOut(AD.auth); } catch (e) {} location.reload(); } })),
+        h('p', { class: 'gsub', text: Object.keys(S.votes).length + ' ballots in total' }),
+        S.err ? h('p', { class: 'gerr', text: 'Cannot read ' + S.err + '. Publish the new firestore.rules and create the admin user in Firebase.' }) : null,
+        h('div', { class: 'atabs' }, tabs.map(([k, t]) => h('button', { class: 'atab' + (S.tab === k ? ' on' : ''), text: t, onclick: () => { S.tab = k; draw(); } }))),
+        S.tab === 'people' ? peopleTab() : S.tab === 'members' ? membersTab() : bannedTab()));
+    };
+    root.addEventListener('focusout', () => setTimeout(() => { if (pending) draw(); }, 60));
+    draw();
+  }
+}
+
+/* ----- spotlight tutorial ----- */
+const STEPS = [
+  { t: 'Welcome to Chad Ranking', x: 'A ranking of the friend group, made by the friend group. This quick tour shows you where everything is. You can skip it any time.' },
+  { tab: 'official', sel: '.tab[data-tab="official"]', t: 'Official Ranking', x: 'The combined result of every vote. It looks the same for everybody and updates live.' },
+  { tab: 'official', sel: '.podium, .hero0', t: 'The podium', x: 'The top 3 by points. Tap a person to open a profile with their photo, Snapchat and averages.' },
+  { tab: 'official', sel: '.pod .pp, .row .score', t: 'Points', x: 'Scores run from roughly 350 to 870. A higher score means a higher place.' },
+  { tab: 'official', sel: '.tab[data-tab="mine"]', t: 'My Ranking', x: 'This is where you cast your own vote.' },
+  { tab: 'mine', sel: '.cols section:first-child', t: 'Rating list', x: 'Put people in your order, best at the top. Drag them or use the arrows.' },
+  { tab: 'mine', sel: '.cols section:nth-child(2)', t: 'Skip list', x: 'People you do not want to judge. Move someone with the Skip and Rank buttons.' },
+  { tab: 'mine', sel: '.row .rate summary', t: 'PSL and Appeal', x: 'Optional extra scores per person. PSL is looks from 1 to 8, Appeal is charm from 1 to 10. Open it to set the sliders.' },
+  { tab: 'mine', sel: '.submitbar', t: 'Submit', x: 'Send your ranking here. You can update it later. There is one ballot per account. Missing PSL or Appeal only gives a warning.' },
+  { sel: '#theme', t: 'Dark and light', x: 'Switch the theme with this button.' },
+  { sel: '#help', t: 'Need this again?', x: 'Press the question mark to replay this tour whenever you like.' }
+];
+function startTour() {
+  if (coach) return;
+  let i = 0, raf = 0, scrolled = -1, tw = 0;
+  const shade = h('div', { class: 'cshade' }), spot = h('div', { class: 'cspot' }), tip = h('div', { class: 'ctip', role: 'dialog', 'aria-label': 'Tutorial' });
+  const wrap = h('div', { id: 'coach' }, shade, spot, tip); document.body.append(wrap);
+  const key = e => { if (e.key === 'Escape') end(false); else if (e.key === 'ArrowRight') next(); else if (e.key === 'ArrowLeft') back(); };
+  function end(done) { cancelAnimationFrame(raf); removeEventListener('keydown', key); wrap.classList.add('out'); setTimeout(() => wrap.remove(), 300); coach = null; if (done) fx.party(); }
+  coach = { end }; addEventListener('keydown', key);
+  const next = () => { if (i >= STEPS.length - 1) end(true); else { i++; draw(); } };
+  const back = () => { if (i > 0) { i--; draw(); } };
+  function draw() {
+    const s = STEPS[i], last = i === STEPS.length - 1;
+    if (s.tab && tab !== s.tab) location.hash = '#' + s.tab;
+    scrolled = -1;
+    tip.replaceChildren(h('div', { class: 'cin' }, h('div', { class: 'cbar' }, h('i', { style: '--w:' + ((i + 1) / STEPS.length * 100) + '%' })), h('h3', { text: s.t }), h('p', { text: s.x }),
+      h('div', { class: 'cbtn' }, last ? null : h('button', { class: 'ghost', text: 'Skip', onclick: () => end(false) }), h('span', { class: 'sp', text: (i + 1) + ' / ' + STEPS.length }),
+        i ? h('button', { class: 'ghost', text: 'Back', onclick: back }) : null, h('button', { class: 'btn', text: last ? 'Finish' : 'Next', onclick: next }))));
+  }
+  function place() {
+    raf = requestAnimationFrame(place);
+    const s = STEPS[i]; let el = s.sel ? document.querySelector(s.sel) : null;
+    if (el && el.getClientRects().length === 0) el = null;
+    if (el && scrolled !== i) { scrolled = i; const b = el.getBoundingClientRect(); if (b.top < 80 || b.bottom > innerHeight - 140) el.scrollIntoView({ block: 'center', behavior: RM ? 'auto' : 'smooth' }); }
+    wrap.classList.toggle('dark', !el);
+    const tW = tip.offsetWidth, tH = tip.offsetHeight; let r;
+    if (el) { const b = el.getBoundingClientRect(); r = { x: b.left - 8, y: b.top - 8, w: b.width + 16, h: b.height + 16 }; } else r = { x: innerWidth / 2, y: innerHeight / 2, w: 0, h: 0 };
+    spot.style.transform = 'translate(' + r.x + 'px,' + r.y + 'px)'; spot.style.width = r.w + 'px'; spot.style.height = r.h + 'px'; spot.style.opacity = el ? 1 : 0;
+    let x, y;
+    if (!el) { x = (innerWidth - tW) / 2; y = (innerHeight - tH) / 2; }
+    else {
+      x = Math.min(Math.max(10, r.x + r.w / 2 - tW / 2), innerWidth - tW - 10);
+      if (r.y + r.h + 14 + tH < innerHeight - 8) y = r.y + r.h + 14; else if (r.y - 14 - tH > 8) y = r.y - 14 - tH; else y = innerHeight - tH - 12;
+    }
+    tip.style.transform = 'translate(' + x + 'px,' + y + 'px)';
+  }
+  draw(); place();
+}
+$('#help').addEventListener('click', startTour);
+$('#logout').addEventListener('click', logout);
+
+/* ----- no zoom, no text selection, light effects ----- */
+['gesturestart', 'gesturechange', 'gestureend'].forEach(ev => document.addEventListener(ev, e => e.preventDefault(), { passive: false }));
+document.addEventListener('wheel', e => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '_', '0'].includes(e.key)) e.preventDefault(); });
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+const editable = t => t && t.closest && t.closest('input,textarea,.sel');
+document.addEventListener('selectstart', e => { if (!editable(e.target)) e.preventDefault(); });
+document.addEventListener('contextmenu', e => { if (!editable(e.target)) e.preventDefault(); });
+document.addEventListener('dragstart', e => { if (e.target.tagName === 'IMG') e.preventDefault(); });
+document.addEventListener('pointerdown', e => {
+  const b = e.target.closest && e.target.closest('.btn,.tab'); if (!b || RM) return;
+  const r = b.getBoundingClientRect(), d = Math.max(r.width, r.height) * 2, s = h('span', { class: 'rip' });
+  s.style.cssText = 'width:' + d + 'px;height:' + d + 'px;left:' + (e.clientX - r.left - d / 2) + 'px;top:' + (e.clientY - r.top - d / 2) + 'px';
+  b.append(s); setTimeout(() => s.remove(), 700);
+});
+let lastTrail = 0;
+document.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && e.timeStamp - lastTrail > 35) { lastTrail = e.timeStamp; fx.trail(e.clientX, e.clientY); } });
+addEventListener('scroll', () => { const m = document.documentElement.scrollHeight - innerHeight; $('#sp').style.transform = 'scaleX(' + (m > 0 ? Math.min(1, scrollY / m) : 0) + ')'; }, { passive: true });
+
 /* ---------- boot ---------- */
 (async function boot() {
   tab = readTab(); syncTheme(); syncTabs(); splitTitle();
+  if (isAdminRoute) { adminBoot(); return; }
   if (!window.FIREBASE_CONFIG) {
-    diagMsg = 'Votes are not shared: config.js contains no Firebase settings. Make sure config.js has your config, is committed to the repo, and that you hard refreshed (Ctrl+Shift+R). Open /config.js on your site to check what is really published.';
-  } else {
-    try { storage = await firebaseAdapter(window.FIREBASE_CONFIG); }
-    catch (e) { console.warn(e); diagMsg = 'Shared voting failed to start (' + (e.code || e.message) + '). ' + hint(e); }
+    diagMsg = 'Votes are not shared: config.js contains no Firebase settings. Make sure config.js has your config, is committed to the repo, and that you hard refreshed (Ctrl+Shift+R).';
+    hook(); return;
   }
-  storage.onRoster(list => { roster = list; rosterLoaded = true; tryInit(); render(); });
-  storage.onVotes(v => { votes = v; votesLoaded = true; tryInit(); render(); },
-    e => { votesError = "Couldn't load everyone's ballots (" + (e.code || e.message) + '). ' + hint(e); syncDiag(); });
+  try { FB = await fbInit(window.FIREBASE_CONFIG); }
+  catch (e) { console.warn(e); diagMsg = 'Login could not start (' + (e.code || e.message) + '). ' + hint(e); hook(); return; }
+  FB.Au.onAuthStateChanged(FB.auth, u => { handleUser(u); });
 })();
 
 /* ---------- confirm dialog ---------- */
@@ -493,37 +850,3 @@ function confirmBox(title, text, yes, no) {
     d.showModal();
   });
 }
-
-/* ---------- tutorial (auto-shows on the first 2 visits, reopen with the ? button) ---------- */
-const TOUR = [
-  { ic: '👑', t: 'Welcome to Chad Ranking', p: ['A ranking of the friend group, made by the friend group.', 'Everyone puts the others in order. All those personal rankings are merged into one shared ranking that looks the same on every phone and computer.'], li: ['<b>Official Ranking</b>: the result of everybody', '<b>My Ranking</b>: your own vote'] },
-  { ic: '🏆', t: 'The Official Ranking', p: ['The first tab shows the combined result.'], li: ['The <b>top 3</b> stand on the podium: gold, silver and bronze', 'Everybody else follows in the list below, and the ticker scrolls the standings', 'Tap a name to open a <b>profile pop-up</b> with a big photo, points, ranks and the PSL and Appeal averages', 'Updates live when someone votes'] },
-  { ic: '🔢', t: 'How the points work', p: ['Every ballot gives points by position: the top spot earns <b>950</b>, the bottom spot <b>0</b>, and everyone in between gets a fair share.', 'The total you see is the average over all ballots. A perfect 1000 is out of reach, so a score in the 700s or 800s is already very strong. More ballots make the ranking more accurate.'] },
-  { ic: '🗳️', t: 'Your own ranking', p: ['Open the <b>My Ranking</b> tab. It has two lists:'], li: ['<b>Rating list</b>: people you want to rank. Drag them (or use the arrows) with the best at the top', '<b>Skip list</b>: people you do not want to judge. They are left out of your ballot and nothing is needed for them', 'Move people between the lists with the buttons on each row'] },
-  { ic: '🎚️', t: 'PSL and Appeal', p: ['For everybody in your Rating list you can add two scores. Open the small rating window on a row to set them:'], li: ['<b>PSL</b> (1 to 8): the looks score', '<b>Appeal</b> (1 to 10): overall charm and vibe', 'Half points are allowed', 'They do not change the order or the points. They show up as averages in the profile pop-up'] },
-  { ic: '✅', t: 'Submitting your ranking', p: ['Press <b>Submit ranking</b> when your order is ready.', 'PSL and Appeal are <b>optional</b>. If some are missing you get a warning and can still submit anyway, or go back and fill them in.'], li: ['You can change your order later and press <b>Update ranking</b>', 'You get one ballot per browser. Clearing your browser data starts a fresh ballot'] },
-  { ic: '💡', t: 'Good to know', p: [], li: ['The badge at the top says <b>Live</b> when votes are shared, or <b>Offline</b> when something is wrong', 'The sun/moon button switches between dark and light theme', 'Only the owner can change names, photos and descriptions', 'Press the <b>?</b> button at the top any time to see this tutorial again'] }
-];
-function initTour() {
-  const T = $('#tour'); let i = 0;
-  const html = (str) => { const s = document.createElement('span'); s.innerHTML = str; return s; };
-  function draw(back) {
-    const pg = TOUR[i], last = i === TOUR.length - 1;
-    const body = h('div', { class: 'tp' + (back ? ' back' : '') }, h('span', { class: 'ic', text: pg.ic }), h('h2', { text: pg.t }));
-    pg.p.forEach(x => { const p = h('p'); p.append(html(x)); body.append(p); });
-    if (pg.li) { const ul = h('ul'); pg.li.forEach(x => { const li = h('li'); li.append(html(x)); ul.append(li); }); body.append(ul); }
-    const dots = h('div', { class: 'dots' }); TOUR.forEach((_, k) => dots.append(h('i', { class: k === i ? 'on' : '' })));
-    T.replaceChildren(h('div', { class: 'tw' }, body, dots, h('div', { class: 'tf' },
-      last ? null : h('button', { class: 'ghost', text: 'Skip tutorial', onclick: () => T.close() }),
-      h('span', { class: 'sp tcount', text: (i + 1) + ' / ' + TOUR.length }),
-      i ? h('button', { class: 'ghost', text: 'Back', onclick: () => { i--; draw(true); } }) : null,
-      h('button', { class: 'btn', text: last ? 'Start ranking' : 'Next →', onclick: () => { if (last) T.close(); else { i++; draw(false); } } }))));
-  }
-  function open() { i = 0; draw(false); if (!T.open) T.showModal(); }
-  T.addEventListener('keydown', e => { if (e.key === 'ArrowRight' && i < TOUR.length - 1) { i++; draw(false); } else if (e.key === 'ArrowLeft' && i > 0) { i--; draw(true); } });
-  $('#help').addEventListener('click', open);
-  let v = 0, ok = true;
-  try { v = (+localStorage.getItem('chad-visits') || 0) + 1; localStorage.setItem('chad-visits', String(v)); } catch (e) { ok = false; }
-  if (ok && v <= 2) setTimeout(open, 700);
-}
-initTour();
