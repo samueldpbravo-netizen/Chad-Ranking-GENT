@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chad Ranking setup check</title>
+<style>
+body{margin:0;background:#060b1f;color:#eef3ff;font:16px/1.5 system-ui,sans-serif;padding:24px}
+main{max-width:720px;margin:0 auto}
+h1{font-size:1.4rem;margin:0 0 4px}p.sub{color:#8f9cc6;margin:0 0 20px}
+.step{border:1px solid #22336d;background:#0e1838;border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.step b{display:block}.step span{color:#8f9cc6;font-size:.9rem;word-break:break-word}
+.ok{border-color:#2f8f62}.bad{border-color:#ff8a7a;background:#2a1520}.wait{opacity:.6}
+.fix{color:#ffd23f;font-size:.95rem;margin-top:4px;display:block}
+pre{white-space:pre-wrap;word-break:break-all;background:#0a1230;padding:8px;border-radius:8px;font-size:.8rem}
+</style>
+<script src="roster.js"></script>
+<script src="config.js"></script>
+</head>
+<body>
+<main>
+  <h1>Setup check</h1>
+  <p class="sub">Runs each step of the Firebase connection and shows the first one that fails. Read the yellow line under the first red step.</p>
+  <div id="out"></div>
+</main>
+<script>
+const out = document.getElementById('out');
+function step(title) {
+  const d = document.createElement('div'); d.className = 'step wait';
+  d.innerHTML = '<b></b><span>Checking…</span>'; d.firstChild.textContent = '… ' + title; out.append(d);
+  return {
+    ok(msg) { d.className = 'step ok'; d.firstChild.textContent = '✅ ' + title; d.lastChild.textContent = msg || ''; },
+    bad(msg, fix) { d.className = 'step bad'; d.firstChild.textContent = '❌ ' + title; d.lastChild.textContent = msg || '';
+      if (fix) { const f = document.createElement('span'); f.className = 'fix'; f.textContent = 'Fix: ' + fix; d.append(f); } }
+  };
+}
+function hint(c) {
+  c = String(c);
+  if (/operation-not-allowed/.test(c)) return 'Firebase > Build > Authentication > Sign-in method > Anonymous > Enable > Save.';
+  if (/configuration-not-found/.test(c)) return 'Firebase > Build > Authentication > click "Get started", then enable Anonymous.';
+  if (/unauthorized-domain/.test(c)) return 'Firebase > Authentication > Settings > Authorized domains > Add domain: ' + location.hostname;
+  if (/api-key|invalid-api|app-not-authorized/.test(c)) return 'The apiKey in config.js is wrong. Copy the config again from Project settings > General > Your apps.';
+  if (/permission-denied/.test(c)) return 'Firestore Database > Rules tab > paste the rules from firestore.rules > Publish.';
+  if (/not-found|failed-precondition|unavailable/.test(c)) return 'Create the database: Build > Firestore Database > Create database (production mode).';
+  return 'Search the error text above, or paste it to Claude.';
+}
+(async () => {
+  let s = step('Page is served over the web (not opened as a file)');
+  if (location.protocol === 'file:') return s.bad('You opened this from your computer.', 'Open it from your GitHub Pages address instead: https://yourname.github.io/your-repo/check.html');
+  s.ok(location.href);
+
+  s = step('roster.js is published and readable');
+  Array.isArray(window.ROSTER) && window.ROSTER.length ? s.ok(window.ROSTER.length + ' people found') : s.bad('window.ROSTER is missing.', 'Make sure roster.js is in the same folder as index.html in the repo root.');
+
+  s = step('config.js as published on your site');
+  let txt = '';
+  try {
+    txt = await (await fetch('config.js?x=' + Date.now(), { cache: 'no-store' })).text();
+    if (/FIREBASE_CONFIG\s*=\s*null/.test(txt)) return s.bad('The published config.js still says FIREBASE_CONFIG = null.', 'Your edit is not live yet. Confirm the commit is on the main branch and the Pages deploy finished (repo > Actions tab shows a green check), then reload.');
+    if (!/FIREBASE_CONFIG/.test(txt)) return s.bad('config.js does not mention FIREBASE_CONFIG.', 'Replace the whole file content with window.FIREBASE_CONFIG = { ... };');
+    s.ok('Contains a FIREBASE_CONFIG value (first 90 characters: ' + txt.replace(/\s+/g, ' ').slice(0, 90) + '…)');
+  } catch (e) { return s.bad(String(e), 'config.js could not be fetched. Check that the file name is exactly config.js in the repo root.'); }
+
+  s = step('config.js has valid settings');
+  const c = window.FIREBASE_CONFIG;
+  if (!c || typeof c !== 'object') return s.bad('window.FIREBASE_CONFIG is not an object. The file probably has a typo, so the browser stopped reading it.', 'Compare with the example: window.FIREBASE_CONFIG = { apiKey: "…", authDomain: "…", projectId: "…", appId: "…" }; (quotes and commas matter, and do not paste "const firebaseConfig =").');
+  const missing = ['apiKey', 'authDomain', 'projectId', 'appId'].filter(k => !c[k] || /^(\.\.\.|AIza\.\.\.|your-)/.test(String(c[k])));
+  if (missing.length) return s.bad('Missing or placeholder values: ' + missing.join(', '), 'Paste your real values from Firebase > Project settings > General > Your apps.');
+  s.ok('projectId: ' + c.projectId + ', authDomain: ' + c.authDomain);
+
+  s = step('Firebase code loads from Google');
+  let A, Au, F;
+  try {
+    const base = 'https://www.gstatic.com/firebasejs/10.12.2/';
+    [A, Au, F] = await Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js')]);
+    s.ok('Loaded');
+  } catch (e) { return s.bad(String(e), 'Your browser or an ad blocker blocked www.gstatic.com. Try another browser or turn the blocker off for this site.'); }
+
+  s = step('Anonymous sign-in works');
+  let app, auth, db, uid;
+  try {
+    app = A.initializeApp(c); auth = Au.getAuth(app); db = F.getFirestore(app);
+    await auth.authStateReady();
+    uid = (auth.currentUser || (await Au.signInAnonymously(auth)).user).uid;
+    s.ok('Signed in as ' + uid);
+  } catch (e) { return s.bad(e.code || e.message, hint(e.code || e.message)); }
+
+  s = step('Firestore accepts a ballot write');
+  try {
+    await F.setDoc(F.doc(db, 'votes', uid), { order: [], scores: {}, known: [], updatedAt: Date.now() });
+    s.ok('Wrote a harmless empty ballot for this device (it does not count as a vote).');
+  } catch (e) { return s.bad(e.code || e.message, hint(e.code || e.message)); }
+
+  s = step('Firestore lets everyone read all ballots');
+  try {
+    const snap = await F.getDocs(F.collection(db, 'votes'));
+    s.ok(snap.size + ' ballot document(s) visible in the database.');
+  } catch (e) { return s.bad(e.code || e.message, hint(e.code || e.message)); }
+
+  const done = document.createElement('div'); done.className = 'step ok';
+  done.innerHTML = '<b>🎉 Everything works</b><span>Open index.html on your site and hard refresh (Ctrl+Shift+R). The badge should read "Live · shared votes".</span>';
+  out.append(done);
+})();
+</script>
+</body>
+</html>
