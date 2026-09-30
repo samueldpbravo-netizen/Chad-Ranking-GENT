@@ -55,9 +55,12 @@ function hint(c) {
   s = step('config.js as published on your site');
   let txt = '';
   try {
-    txt = await (await fetch('config.js?x=' + Date.now(), { cache: 'no-store' })).text();
+    const res = await fetch('config.js?x=' + Date.now(), { cache: 'no-store' });
+    txt = await res.text();
+    const peek = 'HTTP ' + res.status + ' from ' + res.url.split('?')[0] + ' — starts with: ' + txt.replace(/\s+/g, ' ').slice(0, 120);
+    if (!res.ok) return s.bad(peek, 'config.js does not exist at that address. It must be named exactly config.js (lowercase) and sit in the repo root next to index.html, not in a folder.');
     if (/FIREBASE_CONFIG\s*=\s*null/.test(txt)) return s.bad('The published config.js still says FIREBASE_CONFIG = null.', 'Your edit is not live yet. Confirm the commit is on the main branch and the Pages deploy finished (repo > Actions tab shows a green check), then reload.');
-    if (!/FIREBASE_CONFIG/.test(txt)) return s.bad('config.js does not mention FIREBASE_CONFIG.', 'Replace the whole file content with window.FIREBASE_CONFIG = { ... };');
+    if (!/FIREBASE_CONFIG/.test(txt)) return s.bad(peek, 'The file must start with window.FIREBASE_CONFIG = { (not const firebaseConfig = {). Put that at the very start, keep your values, end with };');
     s.ok('Contains a FIREBASE_CONFIG value (first 90 characters: ' + txt.replace(/\s+/g, ' ').slice(0, 90) + '…)');
   } catch (e) { return s.bad(String(e), 'config.js could not be fetched. Check that the file name is exactly config.js in the repo root.'); }
 
