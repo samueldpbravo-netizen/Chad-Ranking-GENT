@@ -7,10 +7,13 @@
 //              Leave '' and nothing is drawn: no placeholder, no empty space.
 // Order here = the default order new voters see.
 window.ROSTER = [
-  { id: 'samuel', name: 'Samuel', subtitle: 'The Lightest Of The Skins', snapchat: '', description: '', image: '' },
-  { id: 'halewijn', name: 'Halewijn', subtitle: 'Real Jew', snapchat: '', description: '', image: '' },
-  { id: 'altug', name: 'Altug', subtitle: 'Turkmaxxer', snapchat: '', description: '', image: '' },
-  { id: 'sid', name: 'Sid', subtitle: 'De Mannenmuiler', snapchat: '', description: '', image: '' },
-  { id: 'anakin', name: 'Anakin', subtitle: '"#1 Chad"', snapchat: '', description: '', image: '' },
-  { id: 'cas', name: 'Cas', subtitle: '- Not Given -', snapchat: '', description: '', image: '' },
+  { id: 'samuel', name: 'Samuel', subtitle: 'The Lightest Of The Skins', snapchat: 'samuel_dpbravo', description: 'Sint-Lievens College Business', image: '' },
+  { id: 'halewijn', name: 'Halewijn', subtitle: 'Real Jew', snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
+  { id: 'altug', name: 'Altug', subtitle: 'Turkmaxxer', snapchat: '', description: 'Sint-Lievens College Business', image: '' },
+  { id: 'sid', name: 'Sid', subtitle: 'De Mannenmuiler', snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
+  { id: 'anakin', name: 'Anakin', subtitle: '"#1 Chad"', snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
+  { id: 'cas', name: 'Cas', subtitle: '- Not Given -', snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
+  { id: 'niels', name: 'Niels', subtitle: '', snapchat: '', description: 'Sint-Lievens College Business', image: '' },
+  { id: 'effe', name: 'Effé', subtitle: 'NTT', snapchat: '', description: 'Sint-Lievens College Business', image: '' },
+  { id: 'ferre', name: 'Ferre', subtitle: 'Basically H!tler', snapchat: '', description: 'Sint-Lievens College Humaniora', image: '' },
 ];
