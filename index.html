@@ -248,6 +248,19 @@ input,textarea{font-size:16px}
 .adminlink{position:fixed;left:10px;bottom:6px;font-size:.68rem;color:var(--muted);opacity:.3;text-decoration:none;z-index:5}
 .adminlink:hover{opacity:.9}
 body.gated .adminlink,body.admin .adminlink,body.admin main{display:none}
+/* podium folds into rows while scrolling */
+#view{overflow-anchor:none}
+.podwrap{display:grid;grid-template-rows:1fr;margin-bottom:20px;transition:grid-template-rows .6s cubic-bezier(.3,.9,.3,1),margin .6s cubic-bezier(.3,.9,.3,1),opacity .45s}
+.podwrap>.podium{overflow:hidden;min-height:0;margin:-16px -12px -14px;padding:16px 12px 14px}
+.foldroot.folded .podwrap{grid-template-rows:0fr;margin-bottom:0;opacity:0;pointer-events:none}
+.foldbox{display:grid;grid-template-rows:0fr;transition:grid-template-rows .6s cubic-bezier(.3,.9,.3,1),margin .6s cubic-bezier(.3,.9,.3,1)}
+.foldbox>ol{overflow:hidden;min-height:0;padding:0 2px}
+.foldroot.folded .foldbox{grid-template-rows:1fr;margin-bottom:9px}
+.foldbox .row{opacity:0;transform:translateY(-34px) scale(.93);transition:opacity .45s .12s,transform .65s cubic-bezier(.3,1.3,.5,1) .05s;border-color:color-mix(in srgb,var(--m) 55%,var(--line))}
+.foldroot.folded .foldbox .row{opacity:1;transform:none}
+.foldbox .row:nth-child(2){transition-delay:.17s,.1s}.foldbox .row:nth-child(3){transition-delay:.22s,.15s}
+.foldbox .m1{--m:#ffd23f}.foldbox .m2{--m:#aebbd8}.foldbox .m3{--m:#d98a4a}
+.foldbox .rk{color:var(--m)}
 /* login gate + admin */
 .gbtn{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:13px 14px;border-radius:14px;border:1px solid #dadce0;background:#fff;color:#1f1f1f;font:700 .95rem var(--body);cursor:pointer;transition:transform .2s,box-shadow .2s}
 .gbtn:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,.3)}.gbtn svg{width:20px;height:20px}
@@ -369,7 +382,7 @@ const fmt = n => Number.isFinite(n) ? n.toFixed(1) : '–';
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 let storage = localAdapter, diagMsg = '', votesError = '';
 let roster = [], votes = {}, rosterLoaded = false, votesLoaded = false;
-let newIds = new Set(), myOrder = [], mySkip = [], dirty = false, mineInit = false, openId = null, tab = 'official';
+let folded = false, foldRaf = 0, newIds = new Set(), myOrder = [], mySkip = [], dirty = false, mineInit = false, openId = null, tab = 'official';
 let dragging = false, sliding = false, pendingRender = false, statusMsg = '', statusKind = '', statusTimer = null, statusFresh = false, focusKey = null;
 let queue = Promise.resolve(), lastDoc = null, animate = true, submittedOnce = false;
 const prevNums = {}, openRate = new Set(), shakeIds = new Set();
@@ -608,7 +621,7 @@ function ticker(a) {
   return h('div', { class: 'ticker rise', style: '--i:0' }, h('div', { class: 'tkrow', style: '--dur:' + seq.length * 3 + 's' }, mk(), mk()));
 }
 function officialView(a) {
-  const top = a.ranked.slice(0, 3), rest = a.ranked.slice(3);
+  const top = a.ranked.slice(0, 3), rest = a.ranked.slice(3); let foldable = false;
   const stat = (n, label) => h('span', { class: 'stat' }, h('b', { 'data-count': n, 'data-dec': 0, 'data-ck': 's' + label, text: n }), label);
   const out = [];
   if (a.ranked.length) out.push(ticker(a));
@@ -618,29 +631,29 @@ function officialView(a) {
       h('p', { class: 'sub', text: 'Be the first to vote and the official ranking appears here.' }),
       h('button', { class: 'btn', text: 'Go to My Ranking', onclick: () => { location.hash = '#mine'; } })));
   } else {
-    out.push(h('div', { class: 'podium' }, [1, 0, 2].filter(i => top[i]).map(i => {
+    const pods = h('div', { class: 'podium' }, [1, 0, 2].filter(i => top[i]).map(i => {
       const s = top[i];
       return h('button', { class: 'pod glow p' + (i + 1), 'data-rank': i + 1, 'data-flip': 'gen:' + s.p.id, style: '--i:' + i, 'aria-label': 'Open ' + s.p.name, onclick: () => showPerson(s.p.id) },
         i === 0 ? h('span', { class: 'crownbig', text: '👑' }) : null, h('span', { class: 'medal', text: i + 1 }), face(s.p),
         h('div', { class: 'pn', text: s.p.name }), s.p.subtitle ? h('small', { text: s.p.subtitle }) : null,
         h('div', { class: 'pp', 'data-count': tot(s.ptsAvg), 'data-dec': 2, 'data-ck': 'g' + s.p.id, text: T0(s.ptsAvg) }),
         h('small', { text: 'pts · ' + s.n + (s.n === 1 ? ' ballot' : ' ballots') }));
-    })));
+    }));
+    const mkRow = (s, n, cls, flip, i) => h('li', Object.assign({ class: 'row glow click' + cls, style: '--i:' + i, onclick: () => showPerson(s.p.id) }, flip ? { 'data-flip': 'gen:' + s.p.id } : {}),
+      h('span', { class: 'rk', text: n }), face(s.p),
+      h('div', { class: 'who' }, h('button', { class: 'link', text: s.p.name, onclick: e => { e.stopPropagation(); showPerson(s.p.id); } }),
+        s.p.subtitle ? h('small', { text: s.p.subtitle }) : null, h('div', { class: 'pbar' }, h('i', { style: '--w:' + s.ptsAvg + '%' }))),
+      h('span', { class: 'score' }, h('b', { 'data-count': tot(s.ptsAvg), 'data-dec': 2, 'data-ck': (flip ? 'g' : 'f') + s.p.id, text: T0(s.ptsAvg) }), h('small', { text: 'pts · ' + s.n + (s.n === 1 ? ' ballot' : ' ballots') })));
     if (rest.length) {
-      const list = h('ol');
-      rest.forEach((s, j) => {
-        list.append(h('li', { class: 'row glow click', 'data-flip': 'gen:' + s.p.id, style: '--i:' + j, onclick: () => showPerson(s.p.id) },
-          h('span', { class: 'rk', text: j + 4 }), face(s.p),
-          h('div', { class: 'who' }, h('button', { class: 'link', text: s.p.name, onclick: e => { e.stopPropagation(); showPerson(s.p.id); } }),
-            s.p.subtitle ? h('small', { text: s.p.subtitle }) : null, h('div', { class: 'pbar' }, h('i', { style: '--w:' + s.ptsAvg + '%' }))),
-          h('span', { class: 'score' }, h('b', { 'data-count': tot(s.ptsAvg), 'data-dec': 2, 'data-ck': 'g' + s.p.id, text: T0(s.ptsAvg) }), h('small', { text: 'pts · ' + s.n + (s.n === 1 ? ' ballot' : ' ballots') }))));
-      });
-      out.push(h('div', { class: 'card rise', style: '--i:3' }, list));
-    }
+      const fold = h('ol'); top.forEach((s, i) => fold.append(mkRow(s, i + 1, ' m' + (i + 1), false, i)));
+      const list = h('ol'); rest.forEach((s, j) => list.append(mkRow(s, j + 4, '', true, j)));
+      out.push(h('div', { class: 'podwrap' }, pods), h('div', { class: 'card rise', style: '--i:3' }, h('div', { class: 'foldbox' }, fold), list));
+      foldable = true;
+    } else out.push(pods);
   }
   if (a.unranked.length) out.push(h('div', { class: 'rise', style: '--i:4;margin-top:16px' }, h('p', { class: 'sub', text: 'Waiting for votes' }),
     h('div', { class: 'chips' }, a.unranked.map(s => h('button', { class: 'chip', text: s.p.name, onclick: () => showPerson(s.p.id) })))));
-  return h('div', {}, out);
+  return h('div', { class: foldable ? 'foldroot' + (folded ? ' folded' : '') : '' }, out);
 }
 
 /* ---------- person window ---------- */
@@ -802,6 +815,7 @@ function render() {
   else content = tab === 'mine' ? mineView() : officialView(aggregate());
   view.className = enter ? 'enter' : '';
   view.replaceChildren(...[newBanner(), content].filter(Boolean));
+  if (tab !== 'official' || !view.querySelector('.foldroot')) { folded = false; view.style.minHeight = ''; }
   statusFresh = false;
   window.scrollTo(0, scrollY);
   if (!enter && !RM) view.querySelectorAll('[data-flip]').forEach(e => {
@@ -1210,6 +1224,19 @@ document.addEventListener('pointerdown', e => {
 });
 let lastTrail = 0;
 document.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && e.timeStamp - lastTrail > 35) { lastTrail = e.timeStamp; fx.trail(e.clientX, e.clientY); } });
+function setFold(on) {
+  const r = document.querySelector('.foldroot'); if (!r || folded === on) return;
+  view.style.minHeight = on ? view.offsetHeight + 'px' : '';  // keeps the page length steady so the fold cannot bounce
+  folded = on; r.classList.toggle('folded', on);
+}
+addEventListener('scroll', () => {
+  if (foldRaf) return;
+  foldRaf = requestAnimationFrame(() => {
+    foldRaf = 0;
+    if (tab !== 'official' || coach || !document.querySelector('.foldroot')) return;
+    if (!folded && scrollY > 150) setFold(true); else if (folded && scrollY < 40) setFold(false);
+  });
+}, { passive: true });
 addEventListener('scroll', () => { const m = document.documentElement.scrollHeight - innerHeight; $('#sp').style.transform = 'scaleX(' + (m > 0 ? Math.min(1, scrollY / m) : 0) + ')'; }, { passive: true });
 
 /* ---------- boot ---------- */

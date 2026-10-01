@@ -30,7 +30,7 @@ const fmt = n => Number.isFinite(n) ? n.toFixed(1) : '–';
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 let storage = localAdapter, diagMsg = '', votesError = '';
 let roster = [], votes = {}, rosterLoaded = false, votesLoaded = false;
-let newIds = new Set(), myOrder = [], mySkip = [], dirty = false, mineInit = false, openId = null, tab = 'official';
+let folded = false, foldRaf = 0, newIds = new Set(), myOrder = [], mySkip = [], dirty = false, mineInit = false, openId = null, tab = 'official';
 let dragging = false, sliding = false, pendingRender = false, statusMsg = '', statusKind = '', statusTimer = null, statusFresh = false, focusKey = null;
 let queue = Promise.resolve(), lastDoc = null, animate = true, submittedOnce = false;
 const prevNums = {}, openRate = new Set(), shakeIds = new Set();
@@ -269,7 +269,7 @@ function ticker(a) {
   return h('div', { class: 'ticker rise', style: '--i:0' }, h('div', { class: 'tkrow', style: '--dur:' + seq.length * 3 + 's' }, mk(), mk()));
 }
 function officialView(a) {
-  const top = a.ranked.slice(0, 3), rest = a.ranked.slice(3);
+  const top = a.ranked.slice(0, 3), rest = a.ranked.slice(3); let foldable = false;
   const stat = (n, label) => h('span', { class: 'stat' }, h('b', { 'data-count': n, 'data-dec': 0, 'data-ck': 's' + label, text: n }), label);
   const out = [];
   if (a.ranked.length) out.push(ticker(a));
@@ -279,29 +279,29 @@ function officialView(a) {
       h('p', { class: 'sub', text: 'Be the first to vote and the official ranking appears here.' }),
       h('button', { class: 'btn', text: 'Go to My Ranking', onclick: () => { location.hash = '#mine'; } })));
   } else {
-    out.push(h('div', { class: 'podium' }, [1, 0, 2].filter(i => top[i]).map(i => {
+    const pods = h('div', { class: 'podium' }, [1, 0, 2].filter(i => top[i]).map(i => {
       const s = top[i];
       return h('button', { class: 'pod glow p' + (i + 1), 'data-rank': i + 1, 'data-flip': 'gen:' + s.p.id, style: '--i:' + i, 'aria-label': 'Open ' + s.p.name, onclick: () => showPerson(s.p.id) },
         i === 0 ? h('span', { class: 'crownbig', text: '👑' }) : null, h('span', { class: 'medal', text: i + 1 }), face(s.p),
         h('div', { class: 'pn', text: s.p.name }), s.p.subtitle ? h('small', { text: s.p.subtitle }) : null,
         h('div', { class: 'pp', 'data-count': tot(s.ptsAvg), 'data-dec': 2, 'data-ck': 'g' + s.p.id, text: T0(s.ptsAvg) }),
         h('small', { text: 'pts · ' + s.n + (s.n === 1 ? ' ballot' : ' ballots') }));
-    })));
+    }));
+    const mkRow = (s, n, cls, flip, i) => h('li', Object.assign({ class: 'row glow click' + cls, style: '--i:' + i, onclick: () => showPerson(s.p.id) }, flip ? { 'data-flip': 'gen:' + s.p.id } : {}),
+      h('span', { class: 'rk', text: n }), face(s.p),
+      h('div', { class: 'who' }, h('button', { class: 'link', text: s.p.name, onclick: e => { e.stopPropagation(); showPerson(s.p.id); } }),
+        s.p.subtitle ? h('small', { text: s.p.subtitle }) : null, h('div', { class: 'pbar' }, h('i', { style: '--w:' + s.ptsAvg + '%' }))),
+      h('span', { class: 'score' }, h('b', { 'data-count': tot(s.ptsAvg), 'data-dec': 2, 'data-ck': (flip ? 'g' : 'f') + s.p.id, text: T0(s.ptsAvg) }), h('small', { text: 'pts · ' + s.n + (s.n === 1 ? ' ballot' : ' ballots') })));
     if (rest.length) {
-      const list = h('ol');
-      rest.forEach((s, j) => {
-        list.append(h('li', { class: 'row glow click', 'data-flip': 'gen:' + s.p.id, style: '--i:' + j, onclick: () => showPerson(s.p.id) },
-          h('span', { class: 'rk', text: j + 4 }), face(s.p),
-          h('div', { class: 'who' }, h('button', { class: 'link', text: s.p.name, onclick: e => { e.stopPropagation(); showPerson(s.p.id); } }),
-            s.p.subtitle ? h('small', { text: s.p.subtitle }) : null, h('div', { class: 'pbar' }, h('i', { style: '--w:' + s.ptsAvg + '%' }))),
-          h('span', { class: 'score' }, h('b', { 'data-count': tot(s.ptsAvg), 'data-dec': 2, 'data-ck': 'g' + s.p.id, text: T0(s.ptsAvg) }), h('small', { text: 'pts · ' + s.n + (s.n === 1 ? ' ballot' : ' ballots') }))));
-      });
-      out.push(h('div', { class: 'card rise', style: '--i:3' }, list));
-    }
+      const fold = h('ol'); top.forEach((s, i) => fold.append(mkRow(s, i + 1, ' m' + (i + 1), false, i)));
+      const list = h('ol'); rest.forEach((s, j) => list.append(mkRow(s, j + 4, '', true, j)));
+      out.push(h('div', { class: 'podwrap' }, pods), h('div', { class: 'card rise', style: '--i:3' }, h('div', { class: 'foldbox' }, fold), list));
+      foldable = true;
+    } else out.push(pods);
   }
   if (a.unranked.length) out.push(h('div', { class: 'rise', style: '--i:4;margin-top:16px' }, h('p', { class: 'sub', text: 'Waiting for votes' }),
     h('div', { class: 'chips' }, a.unranked.map(s => h('button', { class: 'chip', text: s.p.name, onclick: () => showPerson(s.p.id) })))));
-  return h('div', {}, out);
+  return h('div', { class: foldable ? 'foldroot' + (folded ? ' folded' : '') : '' }, out);
 }
 
 /* ---------- person window ---------- */
@@ -463,6 +463,7 @@ function render() {
   else content = tab === 'mine' ? mineView() : officialView(aggregate());
   view.className = enter ? 'enter' : '';
   view.replaceChildren(...[newBanner(), content].filter(Boolean));
+  if (tab !== 'official' || !view.querySelector('.foldroot')) { folded = false; view.style.minHeight = ''; }
   statusFresh = false;
   window.scrollTo(0, scrollY);
   if (!enter && !RM) view.querySelectorAll('[data-flip]').forEach(e => {
@@ -871,6 +872,19 @@ document.addEventListener('pointerdown', e => {
 });
 let lastTrail = 0;
 document.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && e.timeStamp - lastTrail > 35) { lastTrail = e.timeStamp; fx.trail(e.clientX, e.clientY); } });
+function setFold(on) {
+  const r = document.querySelector('.foldroot'); if (!r || folded === on) return;
+  view.style.minHeight = on ? view.offsetHeight + 'px' : '';  // keeps the page length steady so the fold cannot bounce
+  folded = on; r.classList.toggle('folded', on);
+}
+addEventListener('scroll', () => {
+  if (foldRaf) return;
+  foldRaf = requestAnimationFrame(() => {
+    foldRaf = 0;
+    if (tab !== 'official' || coach || !document.querySelector('.foldroot')) return;
+    if (!folded && scrollY > 150) setFold(true); else if (folded && scrollY < 40) setFold(false);
+  });
+}, { passive: true });
 addEventListener('scroll', () => { const m = document.documentElement.scrollHeight - innerHeight; $('#sp').style.transform = 'scaleX(' + (m > 0 ? Math.min(1, scrollY / m) : 0) + ')'; }, { passive: true });
 
 /* ---------- boot ---------- */
