@@ -249,6 +249,10 @@ input,textarea{font-size:16px}
 .adminlink:hover{opacity:.9}
 body.gated .adminlink,body.admin .adminlink,body.admin main{display:none}
 /* login gate + admin */
+.gbtn{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:13px 14px;border-radius:14px;border:1px solid #dadce0;background:#fff;color:#1f1f1f;font:700 .95rem var(--body);cursor:pointer;transition:transform .2s,box-shadow .2s}
+.gbtn:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,.3)}.gbtn svg{width:20px;height:20px}
+.gor{display:flex;align-items:center;gap:10px;width:100%;color:var(--muted);font-size:.8rem}.gor:before,.gor:after{content:"";flex:1;height:1px;background:var(--line)}
+.gtip{font-size:.8rem;color:var(--accent);margin:0}
 #gate,#adminroot{position:fixed;inset:0;z-index:900;display:grid;place-items:center;padding:16px;overflow:auto;background:color-mix(in srgb,var(--bg) 78%,transparent);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
 #gate[hidden],#adminroot[hidden]{display:none}
 #adminroot.panel{place-items:start center}
@@ -854,6 +858,22 @@ const authErr = e => {
   if (/network/.test(c)) return 'No connection. Check your internet and try again.';
   return 'Something went wrong (' + c + ').';
 };
+const inApp = /FBAN|FBAV|Instagram|Snapchat|TikTok|Line\/|MicroMessenger|; wv\)/i.test(navigator.userAgent);
+const GSVG = '<svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FBBC05" d="M10.5 28.7a14.5 14.5 0 010-9.4l-7.9-6.1a24 24 0 000 21.6l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>';
+async function googleLogin(err) {
+  const { Au, auth } = FB, p = new Au.GoogleAuthProvider(); p.setCustomParameters({ prompt: 'select_account' });
+  try { await Au.signInWithPopup(auth, p); }
+  catch (e) {
+    const c = String(e.code || e);
+    if (/popup-closed|cancelled-popup/.test(c)) return;
+    if (/popup-blocked|operation-not-supported/.test(c)) { try { await Au.signInWithRedirect(auth, p); return; } catch (e2) { e = e2; } }
+    err.textContent = /operation-not-allowed/.test(c) ? 'Google sign-in is switched off in Firebase (Authentication > Sign-in method > Google).' : inApp ? 'Google blocks login inside this app. Open this page in Chrome or Safari.' : authErr(e);
+  }
+}
+async function sendVerify(u) {
+  try { await FB.Au.sendEmailVerification(u, { url: location.origin + location.pathname }); }
+  catch (e) { await FB.Au.sendEmailVerification(u); }
+}
 function gateShell(...kids) {
   clearInterval(vt); gate.hidden = false; document.body.classList.add('gated'); $('main').inert = true;
   gate.replaceChildren(h('div', { class: 'gcard' }, h('img', { class: 'glogo', src: 'logo.png', alt: '', width: 88, height: 88 }), h('h2', { class: 'gtitle', text: 'Chad Ranking' }), ...kids));
@@ -886,7 +906,7 @@ function showAuthForm(mode, note) {
         const cred = await Au.createUserWithEmailAndPassword(auth, em, pv);
         await Au.updateProfile(cred.user, { displayName: nm });
         await F.setDoc(F.doc(db, 'profiles', cred.user.uid), { name: nm, email: em, createdAt: Date.now() });
-        await Au.sendEmailVerification(cred.user);
+        await sendVerify(cred.user);
       } else await Au.signInWithEmailAndPassword(auth, em, pv);
     } catch (e) { err.textContent = authErr(e); go.classList.remove('busy'); }
   });
@@ -895,7 +915,9 @@ function showAuthForm(mode, note) {
     if (!validEmail(em)) { err.textContent = 'Type your email above first.'; return; }
     try { await FB.Au.sendPasswordResetEmail(FB.auth, em); err.textContent = 'If that email has an account, a reset link is on its way.'; } catch (e) { err.textContent = authErr(e); }
   };
-  gateShell(h('p', { class: 'gsub', text: signup ? 'Create an account with your name and email. One verified email gives you one ballot.' : 'Welcome back. Log in to see the ranking.' }),
+  const gb = h('button', { class: 'gbtn', type: 'button', onclick: () => googleLogin(err) }); gb.innerHTML = GSVG + '<span>Continue with Google</span>';
+  gateShell(h('p', { class: 'gsub', text: 'One account is one ballot. Google login is instant: no email to confirm.' }), gb,
+    inApp ? h('p', { class: 'gtip', text: 'Opened from an app? Open this page in Chrome or Safari for Google login.' }) : null, h('div', { class: 'gor', text: 'or with email' }),
     seg, form, signup ? null : h('button', { class: 'glink', type: 'button', text: 'Forgot password?', onclick: reset }));
   setTimeout(() => (signup ? name : email).focus(), 350);
 }
@@ -904,14 +926,14 @@ function showVerify(u) {
   const resend = h('button', { class: 'ghost', text: 'Resend email' });
   resend.addEventListener('click', async () => {
     resend.disabled = true; msg.textContent = '';
-    try { await FB.Au.sendEmailVerification(u); msg.textContent = 'Sent again. Check your inbox and spam folder.'; } catch (e) { msg.textContent = authErr(e); }
+    try { await sendVerify(u); msg.textContent = 'Sent again. Check inbox, Spam and Promotions.'; } catch (e) { msg.textContent = authErr(e); }
     setTimeout(() => { resend.disabled = false; }, 30000);
   });
   const check = async () => { try { await FB.Au.reload(u); } catch (e) {} if (u.emailVerified) { clearInterval(vt); proceed(u); return true; } return false; };
-  gateShell(h('p', { class: 'gsub' }, 'We sent a verification link to ', h('b', { class: 'sel', text: u.email }), '. Open it (check spam too) and this page continues by itself.'), msg,
+  gateShell(h('p', { class: 'gsub' }, 'We sent a verification link to ', h('b', { class: 'sel', text: u.email }), '. Tap the link in that email and this page continues by itself. Not there? Look in Spam or Promotions and mark it as not spam.'), msg,
     h('button', { class: 'btn', text: 'I verified, continue', onclick: async () => { if (!(await check())) msg.textContent = 'Not verified yet. Open the link in the email first.'; } }),
     resend, h('button', { class: 'glink', text: 'Use another account', onclick: logout }));
-  vt = setInterval(check, 4000);
+  vt = setInterval(check, 2500);
 }
 function showBanned() {
   gateShell(h('p', { class: 'gsub', text: 'This email address has been banned from Chad Ranking.' }), h('button', { class: 'ghost', text: 'Log out', onclick: logout }));
@@ -988,7 +1010,7 @@ async function adminBoot() {
     const dref = (c, id) => F.doc(db, c, id);
     const run = async (fn, ok) => { try { await fn(); if (ok) say(ok); } catch (e) { say(String(e.code || e.message), true); } };
     const listen = (name, fn) => F.onSnapshot(F.collection(db, name), snap => { fn(snap); S.err = ''; draw(); }, e => { S.err = name + ': ' + (e.code || e.message); draw(); });
-    listen('roster', snap => { S.seeded = false; S.roster = []; snap.forEach(d => { if (d.id === '__init') S.seeded = true; else S.roster.push(person(d.id, d.data(), 0)); }); S.roster.sort((a, b) => a.createdAt - b.createdAt); });
+    listen('roster', snap => { if (!snap.metadata.fromCache && !S.autoSeeded && !snap.docs.some(d => d.id === '__init')) { S.autoSeeded = true; run(seed, 'People list loaded from roster.js'); } S.seeded = false; S.roster = []; snap.forEach(d => { if (d.id === '__init') S.seeded = true; else S.roster.push(person(d.id, d.data(), 0)); }); S.roster.sort((a, b) => a.createdAt - b.createdAt); });
     listen('profiles', snap => { S.profiles = []; snap.forEach(d => S.profiles.push({ id: d.id, ...d.data() })); S.profiles.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); });
     listen('votes', snap => { S.votes = {}; snap.forEach(d => { S.votes[d.id] = d.data(); }); });
     listen('banned', snap => { S.banned = []; snap.forEach(d => S.banned.push({ id: d.id, ...d.data() })); });
@@ -1002,6 +1024,12 @@ async function adminBoot() {
       ROSTER.forEach((p, i) => b.set(dref('roster', p.id), { name: p.name, subtitle: p.subtitle, description: p.description, image: p.image, snapchat: p.snapchat, order: i }));
       b.set(dref('roster', '__init'), { seeded: true, at: Date.now() }); await b.commit();
     }
+    async function resetRoster() {
+      const b = F.writeBatch(db);
+      S.roster.forEach(p => b.delete(dref('roster', p.id)));
+      ROSTER.forEach((p, i) => b.set(dref('roster', p.id), { name: p.name, subtitle: p.subtitle, description: p.description, image: p.image, snapchat: p.snapchat, order: i }));
+      b.set(dref('roster', '__init'), { seeded: true, at: Date.now() }); await b.commit();
+    }
     async function banEmail(em, nm) {
       const pr = S.profiles.find(p => String(p.email).toLowerCase() === em), b = F.writeBatch(db);
       b.set(dref('banned', em), { email: em, name: nm || (pr && pr.name) || '', at: Date.now() });
@@ -1011,9 +1039,9 @@ async function adminBoot() {
     const peopleTab = () => {
       const box = h('div', {});
       if (!S.seeded) {
-        box.append(h('div', { class: 'acard' }, h('h2', { text: 'Take over the people list' }),
-          h('p', { class: 'gsub', text: 'The list still comes from roster.js. Press the button once to copy it into the database. After that you manage everyone here.' }),
-          h('button', { class: 'btn', text: 'Take over roster.js list', onclick: () => run(seed, 'List moved to the database') })));
+        box.append(h('div', { class: 'acard' }, h('h2', { text: 'Loading the people list' }),
+          h('p', { class: 'gsub', text: 'Copying the list from roster.js into the database. If nothing happens, press the button.' }),
+          h('button', { class: 'btn', text: 'Load roster.js list', onclick: () => run(seed, 'List moved to the database') })));
         return box;
       }
       const n = field('Name', ''), sub = field('Subtitle (optional)', ''), sn = field('Snapchat username (optional)', ''), im = field('Image path, e.g. images/thor.jpg (optional)', ''), ds = area('Description (optional)', '');
@@ -1024,6 +1052,8 @@ async function adminBoot() {
           const order = S.roster.reduce((m, p) => Math.max(m, p.createdAt), -1) + 1;
           await F.setDoc(dref('roster', id), { name: nm, subtitle: cl(sub.value, 60), snapchat: cl(sn.value, 40).replace(/^@/, ''), image: cl(im.value, 200), description: cl(ds.value, 600), order });
         }, 'Added') })));
+      box.append(h('div', { class: 'acard' }, h('h2', { text: 'Reset to roster.js' }), h('p', { class: 'gsub', text: 'Replaces the whole list with the people in roster.js. Use this after you changed that file.' }),
+        h('button', { class: 'ghost danger', text: 'Reset list to roster.js', onclick: async () => { if (await confirmBox('Reset the list?', 'Everyone is replaced by the list in roster.js. People who are not in it disappear from all ballots.', 'Reset', 'Cancel')) run(resetRoster, 'List reset'); } })));
       S.roster.forEach((p, i) => {
         const n2 = field('Name', p.name), s2 = field('Subtitle', p.subtitle), c2 = field('Snapchat username', p.snapchat), i2 = field('Image path', p.image), d2 = area('Description', p.description);
         const swap = o => run(async () => { const q = S.roster[i + o]; if (!q) return; const b = F.writeBatch(db); b.update(dref('roster', p.id), { order: q.createdAt }); b.update(dref('roster', q.id), { order: p.createdAt }); await b.commit(); });

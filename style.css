@@ -236,6 +236,10 @@ input,textarea{font-size:16px}
 .adminlink:hover{opacity:.9}
 body.gated .adminlink,body.admin .adminlink,body.admin main{display:none}
 /* login gate + admin */
+.gbtn{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:13px 14px;border-radius:14px;border:1px solid #dadce0;background:#fff;color:#1f1f1f;font:700 .95rem var(--body);cursor:pointer;transition:transform .2s,box-shadow .2s}
+.gbtn:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,.3)}.gbtn svg{width:20px;height:20px}
+.gor{display:flex;align-items:center;gap:10px;width:100%;color:var(--muted);font-size:.8rem}.gor:before,.gor:after{content:"";flex:1;height:1px;background:var(--line)}
+.gtip{font-size:.8rem;color:var(--accent);margin:0}
 #gate,#adminroot{position:fixed;inset:0;z-index:900;display:grid;place-items:center;padding:16px;overflow:auto;background:color-mix(in srgb,var(--bg) 78%,transparent);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
 #gate[hidden],#adminroot[hidden]{display:none}
 #adminroot.panel{place-items:start center}
