@@ -13,7 +13,7 @@ window.ROSTER = [
   { id: 'sid', name: 'Sid', subtitle: 'De Mannenmuiler', snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
   { id: 'anakin', name: 'Anakin', subtitle: '"#1 Chad"', snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
   { id: 'cas', name: 'Cas', subtitle: '- Not Given -', snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },
-  { id: 'niels', name: 'Niels', subtitle: 'Big Nga', snapchat: '', description: 'Sint-Lievens College Business', image: '' },
+  { id: 'niels', name: 'Niels', subtitle: '', snapchat: '', description: 'Sint-Lievens College Business', image: '' },
   { id: 'effe', name: 'Effé', subtitle: 'NTT', snapchat: '', description: 'Sint-Lievens College Business', image: '' },
   { id: 'ferre', name: 'Ferre', subtitle: 'Basically H!tler', snapchat: '', description: 'Sint-Lievens College Humaniora', image: '' },
 ];

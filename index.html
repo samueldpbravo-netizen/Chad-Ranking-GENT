@@ -369,7 +369,7 @@ const fmt = n => Number.isFinite(n) ? n.toFixed(1) : '–';
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 let storage = localAdapter, diagMsg = '', votesError = '';
 let roster = [], votes = {}, rosterLoaded = false, votesLoaded = false;
-let myOrder = [], mySkip = [], dirty = false, mineInit = false, openId = null, tab = 'official';
+let newIds = new Set(), myOrder = [], mySkip = [], dirty = false, mineInit = false, openId = null, tab = 'official';
 let dragging = false, sliding = false, pendingRender = false, statusMsg = '', statusKind = '', statusTimer = null, statusFresh = false, focusKey = null;
 let queue = Promise.resolve(), lastDoc = null, animate = true, submittedOnce = false;
 const prevNums = {}, openRate = new Set(), shakeIds = new Set();
@@ -460,6 +460,7 @@ async function submit() {
       return;
     }
   }
+  newIds.clear();
   write(d => ({ order: myOrder.slice(), scores: d.scores || {}, known: known() }), 'Ballot saved. Thanks!');
 }
 function saveScore(id, key, val) {
@@ -478,8 +479,24 @@ function tryInit() {
     const seen = mine.known || ids;
     myOrder = saved.filter(id => ids.includes(id));
     mySkip = ids.filter(id => !myOrder.includes(id) && seen.includes(id));
-    ids.forEach(id => { if (!myOrder.includes(id) && !mySkip.includes(id)) myOrder.push(id); });
   } else { myOrder = ids.slice(); mySkip = []; }
+  syncRoster();
+}
+// people added (or removed) by the admin after you voted: they join the bottom of your list and the ballot becomes updatable
+function syncRoster() {
+  if (!mineInit) return;
+  const ids = roster.map(p => p.id);
+  myOrder = myOrder.filter(id => ids.includes(id)); mySkip = mySkip.filter(id => ids.includes(id));
+  const fresh = ids.filter(id => !myOrder.includes(id) && !mySkip.includes(id));
+  if (fresh.length) { fresh.forEach(id => { myOrder.push(id); newIds.add(id); }); dirty = true; }
+}
+function newBanner() {
+  const f = myOrder.filter(id => newIds.has(id)).map(byId).filter(Boolean);
+  if (!mineInit || !f.length) return null;
+  return h('div', { class: 'card rise', style: '--i:0;margin-bottom:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap' },
+    h('div', { style: 'flex:1;min-width:200px' }, h('b', { text: f.length === 1 ? 'New person: ' + f[0].name : f.length + ' new people: ' + f.map(p => p.name).join(', ') }),
+      h('p', { class: 'sub', style: 'margin:4px 0 0', text: 'They are at the bottom of your list. Move them where you want, then press Update ranking so they count in the ranking.' })),
+    tab === 'mine' ? null : h('button', { class: 'btn', text: 'Rank them', onclick: () => { location.hash = '#mine'; } }));
 }
 function move(id, dir) {
   const i = myOrder.indexOf(id), j = i + dir;
@@ -784,7 +801,7 @@ function render() {
   else if (!roster.length) content = h('p', { class: 'empty', text: window.ROSTER ? 'The roster is empty. Check back soon.' : "roster.js didn't load. Make sure it sits next to index.html in the repo." });
   else content = tab === 'mine' ? mineView() : officialView(aggregate());
   view.className = enter ? 'enter' : '';
-  view.replaceChildren(content);
+  view.replaceChildren(...[newBanner(), content].filter(Boolean));
   statusFresh = false;
   window.scrollTo(0, scrollY);
   if (!enter && !RM) view.querySelectorAll('[data-flip]').forEach(e => {
@@ -839,9 +856,9 @@ function countVisit() {
 }
 function hook() {
   countVisit();
-  storage.onRoster(list => { roster = list; rosterLoaded = true; tryInit(); render(); },
+  storage.onRoster(list => { roster = list; rosterLoaded = true; tryInit(); syncRoster(); render(); },
     e => { diagMsg = "Couldn't load the people list (" + (e.code || e.message) + '). ' + hint(e); syncDiag(); });
-  storage.onVotes(v => { votes = v; votesLoaded = true; tryInit(); render(); },
+  storage.onVotes(v => { votes = v; votesLoaded = true; tryInit(); syncRoster(); render(); },
     e => { votesError = "Couldn't load everyone's ballots (" + (e.code || e.message) + '). ' + hint(e); syncDiag(); });
 }
 
