@@ -6,6 +6,8 @@
 // image:       path to a picture you upload into the images/ folder, e.g. 'images/thor.jpg'.
 //              Leave '' and nothing is drawn: no placeholder, no empty space.
 // Order here = the default order new voters see.
+// ROSTER_VERSION: change this text whenever you edit the list below. Every change of it makes the whole site (and the admin database) switch to this list.
+window.ROSTER_VERSION = '2026-10-01-a';
 window.ROSTER = [
   { id: 'samuel', name: 'Samuel', subtitle: 'The Lightest Of The Skins', snapchat: 'samuel_dpbravo', description: 'Sint-Lievens College Business', image: '' },
   { id: 'halewijn', name: 'Halewijn', subtitle: 'Real Jew', snapchat: '', description: 'Secundair Kunstinstituut Ottogracht', image: '' },

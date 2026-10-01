@@ -501,9 +501,10 @@ function sharedAdapter(fb, uid) {
     mode: 'shared', userId: uid, canWrite: null,
     onRoster(cb, onErr) {
       F.onSnapshot(F.collection(db, 'roster'), snap => {
-        let seeded = false; const l = [];
-        snap.forEach(d => { if (d.id === '__init') seeded = true; else l.push(person(d.id, d.data(), 0)); });
-        cb(seeded ? l.sort((a, b) => a.createdAt - b.createdAt || a.name.localeCompare(b.name)) : ROSTER);
+        let seeded = false, ver = ''; const l = [];
+        snap.forEach(d => { if (d.id === '__init') { seeded = true; ver = String(d.data().version || ''); } else l.push(person(d.id, d.data(), 0)); });
+        // the database list only counts when it was made from the current roster.js version
+        cb(seeded && ver === String(window.ROSTER_VERSION || '') ? l.sort((a, b) => a.createdAt - b.createdAt || a.name.localeCompare(b.name)) : ROSTER);
       }, e => { onErr && onErr(e); cb(ROSTER); });
     },
     onVotes(cb, onErr) {
@@ -688,7 +689,13 @@ async function adminBoot() {
     const dref = (c, id) => F.doc(db, c, id);
     const run = async (fn, ok) => { try { await fn(); if (ok) say(ok); } catch (e) { say(String(e.code || e.message), true); } };
     const listen = (name, fn) => F.onSnapshot(F.collection(db, name), snap => { fn(snap); S.err = ''; draw(); }, e => { S.err = name + ': ' + (e.code || e.message); draw(); });
-    listen('roster', snap => { if (!snap.metadata.fromCache && !S.autoSeeded && !snap.docs.some(d => d.id === '__init')) { S.autoSeeded = true; run(seed, 'People list loaded from roster.js'); } S.seeded = false; S.roster = []; snap.forEach(d => { if (d.id === '__init') S.seeded = true; else S.roster.push(person(d.id, d.data(), 0)); }); S.roster.sort((a, b) => a.createdAt - b.createdAt); });
+    const CUR = String(window.ROSTER_VERSION || '');
+    listen('roster', snap => {
+      S.seeded = false; S.ver = ''; S.roster = [];
+      snap.forEach(d => { if (d.id === '__init') { S.seeded = true; S.ver = String(d.data().version || ''); } else S.roster.push(person(d.id, d.data(), 0)); });
+      S.roster.sort((a, b) => a.createdAt - b.createdAt);
+      if (!snap.metadata.fromCache && !S.autoSeeded && (!S.seeded || S.ver !== CUR)) { S.autoSeeded = true; run(resetRoster, 'List reset to roster.js'); }
+    });
     listen('profiles', snap => { S.profiles = []; snap.forEach(d => S.profiles.push({ id: d.id, ...d.data() })); S.profiles.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); });
     listen('votes', snap => { S.votes = {}; snap.forEach(d => { S.votes[d.id] = d.data(); }); });
     listen('banned', snap => { S.banned = []; snap.forEach(d => S.banned.push({ id: d.id, ...d.data() })); });
@@ -697,16 +704,12 @@ async function adminBoot() {
     const ballotSize = id => ((S.votes[id] || {}).order || []).length;
     const field = (ph, val, cls) => h('input', { class: 'ainp ' + (cls || ''), placeholder: ph, 'aria-label': ph, value: val || '' });
     const area = (ph, val) => { const t = h('textarea', { class: 'ainp', placeholder: ph, 'aria-label': ph }); t.value = val || ''; return t; };
-    async function seed() {
-      const b = F.writeBatch(db);
-      ROSTER.forEach((p, i) => b.set(dref('roster', p.id), { name: p.name, subtitle: p.subtitle, description: p.description, image: p.image, snapchat: p.snapchat, order: i }));
-      b.set(dref('roster', '__init'), { seeded: true, at: Date.now() }); await b.commit();
-    }
+    const seed = () => resetRoster();
     async function resetRoster() {
       const b = F.writeBatch(db);
       S.roster.forEach(p => b.delete(dref('roster', p.id)));
       ROSTER.forEach((p, i) => b.set(dref('roster', p.id), { name: p.name, subtitle: p.subtitle, description: p.description, image: p.image, snapchat: p.snapchat, order: i }));
-      b.set(dref('roster', '__init'), { seeded: true, at: Date.now() }); await b.commit();
+      b.set(dref('roster', '__init'), { seeded: true, version: String(window.ROSTER_VERSION || ''), at: Date.now() }); await b.commit();
     }
     async function banEmail(em, nm) {
       const pr = S.profiles.find(p => String(p.email).toLowerCase() === em), b = F.writeBatch(db);
