@@ -382,8 +382,7 @@ const DEF = { psl: 4, appeal: 5 };
 const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = s => document.querySelector(s);
 const view = $('#view'), dlg = $('#dlg');
-const ptsFor = (i, N) => N > 1 ? (N - 1 - i) / (N - 1) * 100 : 100;
-// realistic score: 350 (last) to 870 (unanimous first), always with 2 decimals, never 0
+const ptsFor = (i, N) => (N - i) / N * 100;// realistic score: 350 (last) to 870 (unanimous first), always with 2 decimals, never 0
 const tot = v => 350 + 520 * Math.pow(Math.min(100, Math.max(0, v)) / 100, 0.9), T0 = v => tot(v).toFixed(2);
 const fmt = n => Number.isFinite(n) ? n.toFixed(1) : '–';
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
@@ -652,7 +651,7 @@ function mineView() {
     h('p', { class: 'sub rise', style: '--i:0', text: 'Drag people into your order, best first. PSL and Appeal scores are optional, but you will get a warning if you submit without them. People in the Skip list are left out.' }),
     h('div', { class: 'cols' },
       h('section', { class: 'card rise', style: '--i:1' }, h('h2', { text: 'Rating list · ' + N }),
-        h('p', { class: 'sub', text: 'Best at the top. Your first pick is worth ' + T0(100) + ' points, your last pick ' + T0(0) + '.' }),
+        h('p', { class: 'sub', text: 'Best at the top. Your first pick is worth ' + T0(100) + ' points, your last pick ' + T0(N ? ptsFor(N - 1, N) : 0) + '.' }),
         N ? rlist : h('p', { class: 'empty', text: 'Nobody here yet. Bring people over from the Skip list, or submit an empty ranking.' })),
       h('section', { class: 'card rise', style: '--i:2' }, h('h2', { text: 'Skip list · ' + mySkip.length }),
         h('p', { class: 'sub', text: 'Left out of your ranking. No ratings needed.' }),
