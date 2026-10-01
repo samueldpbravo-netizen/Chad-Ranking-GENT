@@ -15,10 +15,16 @@ service cloud.firestore {
     match /votes/{uid} {
       allow read: if isAdmin() || okUser();
       allow create, update: if okUser() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['order', 'scores', 'known', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['order', 'scores', 'known', 'groups', 'updatedAt'])
         && request.resource.data.order is list && request.resource.data.order.size() <= 100
-        && request.resource.data.scores is map;
+        && request.resource.data.scores is map
+        && (!('groups' in request.resource.data) || request.resource.data.groups is map);
       allow delete: if isAdmin();
+    }
+    // names of the rankings (admin renames them)
+    match /meta/{id} {
+      allow read: if isAdmin() || okUser();
+      allow write: if isAdmin();
     }
     // name + email of each account: only the owner of the account and the admin can read
     match /profiles/{uid} {

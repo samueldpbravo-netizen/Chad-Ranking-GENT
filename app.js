@@ -30,11 +30,40 @@ const fmt = n => Number.isFinite(n) ? n.toFixed(1) : '–';
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 let storage = localAdapter, diagMsg = '', votesError = '';
 let roster = [], votes = {}, rosterLoaded = false, votesLoaded = false;
-let folded = false, foldRaf = 0, newIds = new Set(), myOrder = [], mySkip = [], dirty = false, mineInit = false, openId = null, tab = 'official';
+let board = 'general', boardNames = {}, BS = {}, folded = false, foldRaf = 0, newIds = new Set(), myOrder = [], mySkip = [], dirty = false, mineInit = false, openId = null, tab = 'official';
 let dragging = false, sliding = false, pendingRender = false, statusMsg = '', statusKind = '', statusTimer = null, statusFresh = false, focusKey = null;
 let queue = Promise.resolve(), lastDoc = null, animate = true, submittedOnce = false;
 const prevNums = {}, openRate = new Set(), shakeIds = new Set();
 const byId = id => roster.find(p => p.id === id);
+/* rankings: "general" plus one per shared description (2+ people). Each person is set to appear in general and/or the group ranking */
+const gslug = t => 'g-' + String(t || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+function boardList(src = roster, names = boardNames) {
+  const list = [{ key: 'general', label: 'General', members: src.filter(p => p.general !== false) }], map = new Map();
+  src.forEach(p => {
+    const d = String(p.description || '').trim(); if (!d || p.group === false) return;
+    const k = gslug(d); if (!map.has(k)) map.set(k, { key: k, label: d, members: [] }); map.get(k).members.push(p);
+  });
+  [...map.values()].filter(b => b.members.length >= 2).sort((a, b) => a.label.localeCompare(b.label)).forEach(b => list.push(b));
+  list.forEach(b => { b.defaultName = b.label; b.name = String((names || {})[b.key] || b.label).slice(0, 40); });
+  return list;
+}
+const boards = () => boardList();
+const boardSaved = (mine, key) => key === 'general' ? { order: mine.order || [], known: mine.known } : ((mine.groups || {})[key] || {});
+function initBoard(b, mine) {
+  const ids = b.members.map(p => p.id), sv = boardSaved(mine, b.key), saved = sv.order || [];
+  if (saved.length) { const seen = sv.known || ids, order = saved.filter(id => ids.includes(id)); return { order, skip: ids.filter(id => !order.includes(id) && seen.includes(id)) }; }
+  return { order: ids.slice(), skip: [] };
+}
+const saveBoard = () => { if (mineInit && BS[board]) BS[board] = { order: myOrder, skip: mySkip }; };
+const loadBoard = () => { const b = BS[board] || { order: [], skip: [] }; myOrder = b.order; mySkip = b.skip; };
+function setBoard(k) {
+  if (k === board) return;
+  saveBoard(); board = k; loadBoard(); folded = false; view.style.minHeight = ''; animate = true; render();
+}
+function boardBar() {
+  const bl = boards(); if (bl.length < 2 || !(rosterLoaded && votesLoaded && mineInit)) return null;
+  return h('div', { class: 'boardbar', role: 'tablist', 'aria-label': 'Rankings' }, bl.map(b => h('button', { class: 'bchip' + (b.key === board ? ' on' : ''), role: 'tab', 'aria-selected': String(b.key === board), text: b.name, onclick: () => setBoard(b.key) })));
+}
 const myDoc = () => votes[storage.userId] || lastDoc || { order: [], scores: {} };
 const rated = (sc, id) => Number.isFinite((sc[id] || {}).psl) && Number.isFinite((sc[id] || {}).appeal);
 
@@ -70,12 +99,13 @@ function face(p, cls) {
 }
 
 /* ---------- aggregation ---------- */
-function aggregate() {
-  const ids = new Set(roster.map(p => p.id));
-  const st = {}; roster.forEach(p => st[p.id] = { p, pts: 0, n: 0, ps: 0, pn: 0, as: 0, an: 0 });
+function aggregate(key = board) {
+  const bd = boards().find(x => x.key === key) || boards()[0], mem = bd.members;
+  const ids = new Set(mem.map(p => p.id));
+  const st = {}; mem.forEach(p => st[p.id] = { p, pts: 0, n: 0, ps: 0, pn: 0, as: 0, an: 0 });
   let ballots = 0;
   Object.keys(votes).sort().map(k => votes[k]).forEach(v => {
-    const ord = (v.order || []).filter(id => ids.has(id));
+    const ord = ((bd.key === 'general' ? v.order : ((v.groups || {})[bd.key] || {}).order) || []).filter(id => ids.has(id));
     if (ord.length) ballots++;
     const sc = v.scores || {};
     ord.forEach((id, i) => {
@@ -93,7 +123,7 @@ function aggregate() {
     const list = all.filter(s => s[key] != null).sort((a, b) => b[key] - a[key] || nameCmp(a, b));
     const m = {}; list.forEach((s, i) => m[s.p.id] = i + 1); return { m, total: list.length };
   };
-  return { ballots, ranked, unranked: all.filter(s => !s.n).sort(nameCmp), st, ov: rankBy('ptsAvg'), pr: rankBy('psl'), ar: rankBy('appeal') };
+  return { people: mem.length, board: bd, ballots, ranked, unranked: all.filter(s => !s.n).sort(nameCmp), st, ov: rankBy('ptsAvg'), pr: rankBy('psl'), ar: rankBy('appeal') };
 }
 
 /* ---------- writes (serialized) ---------- */
@@ -108,26 +138,33 @@ function write(build, okMsg) {
     } catch (e) { setStatus(errMsg(e), 'err'); }
   });
 }
-const known = () => roster.map(p => p.id);
+const known = () => roster.filter(p => p.general !== false).map(p => p.id);
 async function submit() {
   const sc = myDoc().scores || {};
-  const missing = myOrder.filter(id => !rated(sc, id));
+  saveBoard();
+  const allIds = [...new Set(Object.values(BS).flatMap(b => b.order))];
+  const missing = allIds.filter(id => !rated(sc, id));
   if (missing.length) {
     const nm = missing.map(id => byId(id).name), shown = nm.slice(0, 6).join(', ') + (nm.length > 6 ? ' +' + (nm.length - 6) + ' more' : '');
     const go = await confirmBox('Submit without PSL and Appeal?', 'These people are missing a PSL and/or Appeal score: ' + shown + '. Your order still counts, but their PSL and Appeal averages will not include you. You can add scores later and update your ranking.', 'Submit anyway', 'Go back and rate');
     if (!go) {
+      const bk = Object.keys(BS).find(k => BS[k].order.includes(missing[0])); if (bk && bk !== board) { board = bk; loadBoard(); }
       shakeIds.clear(); missing.forEach(id => shakeIds.add(id)); openRate.add(missing[0]); render();
       requestAnimationFrame(() => { const el = view.querySelector('[data-id="' + missing[0] + '"]'); if (el) el.scrollIntoView({ behavior: RM ? 'auto' : 'smooth', block: 'center' }); });
       return;
     }
   }
   newIds.clear();
-  write(d => ({ order: myOrder.slice(), scores: d.scores || {}, known: known() }), 'Ballot saved. Thanks!');
+  write(d => {
+    const groups = {};
+    boards().forEach(b => { if (b.key !== 'general' && BS[b.key]) groups[b.key] = { order: BS[b.key].order.slice(), known: b.members.map(p => p.id) }; });
+    return { order: (BS.general ? BS.general.order : []).slice(), scores: d.scores || {}, known: known(), groups };
+  }, 'Ballot saved. Thanks!');
 }
 function saveScore(id, key, val) {
   write(d => {
     const sc = { ...(d.scores || {}) }; sc[id] = { ...(sc[id] || {}), [key]: val };
-    return { order: d.order || [], scores: sc, known: d.known || known() };
+    return { order: d.order || [], scores: sc, known: d.known || known(), groups: d.groups || {} };
   });
 }
 
@@ -135,21 +172,26 @@ function saveScore(id, key, val) {
 function tryInit() {
   if (mineInit || !rosterLoaded || !votesLoaded) return;
   mineInit = true;
-  const mine = votes[storage.userId] || {}, saved = mine.order || [], ids = roster.map(p => p.id);
-  if (saved.length) {
-    const seen = mine.known || ids;
-    myOrder = saved.filter(id => ids.includes(id));
-    mySkip = ids.filter(id => !myOrder.includes(id) && seen.includes(id));
-  } else { myOrder = ids.slice(); mySkip = []; }
-  syncRoster();
+  const mine = votes[storage.userId] || {}, had = (mine.order || []).length > 0 || Object.values(mine.groups || {}).some(g => (g.order || []).length);
+  boards().forEach(b => { BS[b.key] = initBoard(b, mine); if (had && !(boardSaved(mine, b.key).order || []).length) dirty = true; });
+  loadBoard(); syncRoster();
 }
-// people added (or removed) by the admin after you voted: they join the bottom of your list and the ballot becomes updatable
+// people or rankings added/removed by the admin after you voted: new people join the bottom of that list and the ballot becomes updatable
 function syncRoster() {
   if (!mineInit) return;
-  const ids = roster.map(p => p.id);
-  myOrder = myOrder.filter(id => ids.includes(id)); mySkip = mySkip.filter(id => ids.includes(id));
-  const fresh = ids.filter(id => !myOrder.includes(id) && !mySkip.includes(id));
-  if (fresh.length) { fresh.forEach(id => { myOrder.push(id); newIds.add(id); }); dirty = true; }
+  saveBoard();
+  const bl = boards(), mine = votes[storage.userId] || {};
+  Object.keys(BS).forEach(k => { if (!bl.some(b => b.key === k)) delete BS[k]; });
+  bl.forEach(b => {
+    const ids = b.members.map(p => p.id);
+    if (!BS[b.key]) { BS[b.key] = initBoard(b, mine); if ((mine.order || []).length || submittedOnce) dirty = true; return; }
+    const st = BS[b.key];
+    st.order = st.order.filter(id => ids.includes(id)); st.skip = st.skip.filter(id => ids.includes(id));
+    const fresh = ids.filter(id => !st.order.includes(id) && !st.skip.includes(id));
+    if (fresh.length) { fresh.forEach(id => { st.order.push(id); newIds.add(id); }); dirty = true; }
+  });
+  if (!BS[board]) board = 'general';
+  loadBoard();
 }
 function newBanner() {
   const f = myOrder.filter(id => newIds.has(id)).map(byId).filter(Boolean);
@@ -244,7 +286,7 @@ function mineView() {
     slist.append(h('li', { class: 'row glow', 'data-flip': 'my:' + id, style: '--i:' + i }, face(p, 'sm'), nameBlock(p),
       h('button', { class: 'ghost', text: '← Rank them', 'aria-label': 'Rank ' + p.name, onclick: () => rank(id) })));
   });
-  const hasSaved = (myDoc().order || []).length > 0 || submittedOnce;
+  const d0 = myDoc(), hasSaved = (d0.order || []).length > 0 || Object.values(d0.groups || {}).some(g => (g.order || []).length) || submittedOnce;
   const btn = h('button', { class: 'btn', text: hasSaved ? 'Update ranking' : 'Submit ranking', onclick: submit });
   if (hasSaved && !dirty) btn.disabled = true;
   return h('div', {},
@@ -273,7 +315,7 @@ function officialView(a) {
   const stat = (n, label) => h('span', { class: 'stat' }, h('b', { 'data-count': n, 'data-dec': 0, 'data-ck': 's' + label, text: n }), label);
   const out = [];
   if (a.ranked.length) out.push(ticker(a));
-  out.push(h('div', { class: 'stats rise', style: '--i:0' }, stat(a.ballots, a.ballots === 1 ? 'ballot' : 'ballots'), stat(roster.length, 'people')));
+  out.push(h('div', { class: 'stats rise', style: '--i:0' }, stat(a.ballots, a.ballots === 1 ? 'ballot' : 'ballots'), stat(a.people, 'people')));
   if (!a.ranked.length) {
     out.push(h('div', { class: 'card hero0 rise', style: '--i:1' }, h('div', { class: 'big', text: '🗳️' }), h('h2', { text: 'No ballots yet' }),
       h('p', { class: 'sub', text: 'Be the first to vote and the official ranking appears here.' }),
@@ -312,14 +354,17 @@ function closeDlg() {
   dlg.classList.add('closing'); setTimeout(() => { dlg.close(); dlg.classList.remove('closing'); }, 220);
 }
 function fillDialog(swap) {
-  const a = aggregate(), s = a.st[openId];
+  const bd = boards(), has = b => b.members.some(x => x.id === openId);
+  const bk = (bd.find(b => b.key === board && has(b)) || bd.find(has) || bd[0]).key;
+  const a = aggregate(bk), s = a.st[openId];
   if (!s) { closeDlg(); return; }
   const order = a.ranked.concat(a.unranked).map(x => x.p.id), idx = order.indexOf(openId);
   const step = d => { openId = order[(idx + d + order.length) % order.length]; fillDialog(true); };
-  const mine = (myDoc().scores || {})[openId], inOrder = myOrder.includes(openId);
+  const mine = (myDoc().scores || {})[openId], inOrder = myOrder.includes(openId) || Object.values(BS).some(b => b.order.includes(openId));
   const tile = (t, v, sm, pct) => h('div', { class: 'tile' }, h('small', { text: t }), h('b', { text: v }),
     pct != null ? h('div', { class: 'pbar' }, h('i', { style: '--w:' + pct + '%' })) : null, h('small', { text: sm }));
   const p = s.p;
+  const extra = bd.filter(b => b.key !== bk && has(b)).map(b => { const x = aggregate(b.key), t2 = x.st[openId]; return tile('Rank in ' + b.name, x.ov.m[openId] ? '#' + x.ov.m[openId] + ' of ' + x.ov.total : 'Not ranked yet', t2.n + (t2.n === 1 ? ' ballot' : ' ballots'), t2.ptsAvg); });
   let img = null;
   if (p.image) { const i = h('img', { src: p.image, alt: p.name }); img = h('div', { class: 'mimg' }, i); i.addEventListener('error', () => img.remove()); }
   const body = h('div', { class: 'mbody' + (swap ? ' swap' : '') }, img,
@@ -328,9 +373,10 @@ function fillDialog(swap) {
       h('div', { class: 'big', 'data-count': tot(s.ptsAvg ?? 0), 'data-dec': 2, 'data-ck': 'm', text: s.ptsAvg == null ? '–' : T0(s.ptsAvg) }),
       h('p', { class: 'sub', text: 'points · higher is better' }),
       h('div', { class: 'tiles' },
-        tile('Overall rank', a.ov.m[openId] ? '#' + a.ov.m[openId] + ' of ' + a.ov.total : 'Not ranked yet', s.n + (s.n === 1 ? ' ballot' : ' ballots'), s.ptsAvg),
+        tile(bk === 'general' ? 'Overall rank' : 'Rank in ' + a.board.name, a.ov.m[openId] ? '#' + a.ov.m[openId] + ' of ' + a.ov.total : 'Not ranked yet', s.n + (s.n === 1 ? ' ballot' : ' ballots'), s.ptsAvg),
         tile('PSL', s.psl == null ? '–' : fmt(s.psl) + ' / 8', (a.pr.m[openId] ? '#' + a.pr.m[openId] + ' of ' + a.pr.total + ' · ' : '') + s.pn + ' votes', s.psl == null ? 0 : s.psl / 8 * 100),
         tile('Appeal', s.appeal == null ? '–' : fmt(s.appeal) + ' / 10', (a.ar.m[openId] ? '#' + a.ar.m[openId] + ' of ' + a.ar.total + ' · ' : '') + s.an + ' votes', s.appeal == null ? 0 : s.appeal / 10 * 100),
+        ...extra,
         tile('Your rating', mine && inOrder && rated({ x: mine }, 'x') ? fmt(mine.psl) + ' · ' + fmt(mine.appeal) : 'Not rated', 'PSL · Appeal'))));
   dlg.replaceChildren(h('div', { class: 'mwin' },
     h('button', { class: 'mclose', text: '✕', 'aria-label': 'Close', onclick: closeDlg }), body,
@@ -462,7 +508,7 @@ function render() {
   else if (!roster.length) content = h('p', { class: 'empty', text: window.ROSTER ? 'The roster is empty. Check back soon.' : "roster.js didn't load. Make sure it sits next to index.html in the repo." });
   else content = tab === 'mine' ? mineView() : officialView(aggregate());
   view.className = enter ? 'enter' : '';
-  view.replaceChildren(...[newBanner(), content].filter(Boolean));
+  view.replaceChildren(...[boardBar(), newBanner(), content].filter(Boolean));
   if (tab !== 'official' || !view.querySelector('.foldroot')) { folded = false; view.style.minHeight = ''; }
   statusFresh = false;
   window.scrollTo(0, scrollY);
@@ -494,7 +540,7 @@ async function fbInit(cfg) {
   await auth.authStateReady();
   return { ...m, app, auth, db: m.F.getFirestore(app) };
 }
-const person = (id, x, i) => ({ id, name: String(x.name || ''), subtitle: String(x.subtitle || ''), description: String(x.description || ''), image: String(x.image || ''),
+const person = (id, x, i) => ({ id, general: x.general !== false, group: x.group !== false, name: String(x.name || ''), subtitle: String(x.subtitle || ''), description: String(x.description || ''), image: String(x.image || ''),
   snapchat: String(x.snapchat || '').replace(/^@/, '').trim(), createdAt: Number.isFinite(x.order) ? x.order : i });
 function sharedAdapter(fb, uid) {
   const { F, db } = fb;
@@ -508,6 +554,7 @@ function sharedAdapter(fb, uid) {
         cb(seeded && ver === String(window.ROSTER_VERSION || '') ? l.sort((a, b) => a.createdAt - b.createdAt || a.name.localeCompare(b.name)) : ROSTER);
       }, e => { onErr && onErr(e); cb(ROSTER); });
     },
+    onMeta(cb) { F.onSnapshot(F.doc(db, 'meta', 'rankings'), snap => cb((snap.exists() && snap.data().names) || {}), () => cb({})); },
     onVotes(cb, onErr) {
       F.onSnapshot(F.collection(db, 'votes'), snap => { const o = {}; snap.forEach(d => o[d.id] = d.data()); cb(o); }, e => { onErr && onErr(e); cb({}); });
     },
@@ -521,6 +568,7 @@ function hook() {
   countVisit();
   storage.onRoster(list => { roster = list; rosterLoaded = true; tryInit(); syncRoster(); render(); },
     e => { diagMsg = "Couldn't load the people list (" + (e.code || e.message) + '). ' + hint(e); syncDiag(); });
+  if (storage.onMeta) storage.onMeta(n => { boardNames = n || {}; render(); });
   storage.onVotes(v => { votes = v; votesLoaded = true; tryInit(); syncRoster(); render(); },
     e => { votesError = "Couldn't load everyone's ballots (" + (e.code || e.message) + '). ' + hint(e); syncDiag(); });
 }
@@ -685,7 +733,7 @@ async function adminBoot() {
 
   function panel() {
     const { F, db } = AD;
-    const S = { tab: 'people', roster: [], seeded: false, profiles: [], votes: {}, banned: [], err: '' };
+    const S = { tab: 'people', names: {}, roster: [], seeded: false, profiles: [], votes: {}, banned: [], err: '' };
     const cl = (v, n) => String(v || '').trim().slice(0, n);
     const dref = (c, id) => F.doc(db, c, id);
     const run = async (fn, ok) => { try { await fn(); if (ok) say(ok); } catch (e) { say(String(e.code || e.message), true); } };
@@ -699,6 +747,7 @@ async function adminBoot() {
     });
     listen('profiles', snap => { S.profiles = []; snap.forEach(d => S.profiles.push({ id: d.id, ...d.data() })); S.profiles.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); });
     listen('votes', snap => { S.votes = {}; snap.forEach(d => { S.votes[d.id] = d.data(); }); });
+    F.onSnapshot(dref('meta', 'rankings'), snap => { S.names = (snap.exists() && snap.data().names) || {}; draw(); }, () => {});
     listen('banned', snap => { S.banned = []; snap.forEach(d => S.banned.push({ id: d.id, ...d.data() })); });
     let pending = false;
     const isBan = em => S.banned.some(b => b.id === em);
@@ -709,7 +758,7 @@ async function adminBoot() {
     async function resetRoster() {
       const b = F.writeBatch(db);
       S.roster.forEach(p => b.delete(dref('roster', p.id)));
-      ROSTER.forEach((p, i) => b.set(dref('roster', p.id), { name: p.name, subtitle: p.subtitle, description: p.description, image: p.image, snapchat: p.snapchat, order: i }));
+      ROSTER.forEach((p, i) => b.set(dref('roster', p.id), { name: p.name, subtitle: p.subtitle, description: p.description, image: p.image, snapchat: p.snapchat, general: p.general !== false, group: p.group !== false, order: i }));
       b.set(dref('roster', '__init'), { seeded: true, version: String(window.ROSTER_VERSION || ''), at: Date.now() }); await b.commit();
     }
     async function banEmail(em, nm) {
@@ -718,6 +767,20 @@ async function adminBoot() {
       if (pr && S.votes[pr.id]) b.delete(dref('votes', pr.id));
       await b.commit();
     }
+    const selIn = v => { const e = h('select', { class: 'ainp', 'aria-label': 'Appears in' }, h('option', { value: 'both', text: 'Appears in: General and group ranking' }), h('option', { value: 'general', text: 'Appears in: General only' }), h('option', { value: 'group', text: 'Appears in: group ranking only' })); e.value = v; return e; };
+    const inVal = p => p.general !== false && p.group !== false ? 'both' : p.general !== false ? 'general' : 'group';
+    const flags = v => ({ general: v !== 'group', group: v !== 'general' });
+    const rankTab = () => {
+      const box = h('div', {}), bl = boardList(S.roster, S.names);
+      box.append(h('p', { class: 'gsub', text: 'The General ranking holds everyone set to appear in it. Every description shared by 2 or more people (set to appear in the group ranking) gets its own ranking. Rename them here.' }));
+      bl.forEach(b => {
+        const inp = field(b.defaultName, S.names[b.key] || '');
+        box.append(h('div', { class: 'acard' }, h('h2', { text: (b.key === 'general' ? 'General ranking' : 'Group ranking') + ' · ' + b.name }),
+          h('small', { class: 'gsub', text: b.members.length + ' people: ' + b.members.map(p => p.name).join(', ') }), inp,
+          h('button', { class: 'btn', text: 'Save name', onclick: () => run(() => F.setDoc(dref('meta', 'rankings'), { names: { [b.key]: cl(inp.value, 40) || F.deleteField() } }, { merge: true }), 'Name saved') })));
+      });
+      return box;
+    };
     const peopleTab = () => {
       const box = h('div', {});
       if (!S.seeded) {
@@ -726,24 +789,24 @@ async function adminBoot() {
           h('button', { class: 'btn', text: 'Load roster.js list', onclick: () => run(seed, 'List moved to the database') })));
         return box;
       }
-      const n = field('Name', ''), sub = field('Subtitle (optional)', ''), sn = field('Snapchat username (optional)', ''), im = field('Image path, e.g. images/thor.jpg (optional)', ''), ds = area('Description (optional)', '');
-      box.append(h('div', { class: 'acard' }, h('h2', { text: 'Add a person' }), h('div', { class: 'agrid' }, n, sub, sn, im), ds,
+      const n = field('Name', ''), sub = field('Subtitle (optional)', ''), sn = field('Snapchat username (optional)', ''), im = field('Image path, e.g. images/thor.jpg (optional)', ''), ds = area('Description (optional, people with the same description share a ranking)', ''), ap = selIn('both');
+      box.append(h('div', { class: 'acard' }, h('h2', { text: 'Add a person' }), h('div', { class: 'agrid' }, n, sub, sn, im), ds, ap,
         h('button', { class: 'btn', text: 'Add person', onclick: () => run(async () => {
           const nm = cl(n.value, 40); if (!nm) throw new Error('Name is required');
           const id = (nm.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'p') + '-' + Math.random().toString(36).slice(2, 6);
           const order = S.roster.reduce((m, p) => Math.max(m, p.createdAt), -1) + 1;
-          await F.setDoc(dref('roster', id), { name: nm, subtitle: cl(sub.value, 60), snapchat: cl(sn.value, 40).replace(/^@/, ''), image: cl(im.value, 200), description: cl(ds.value, 600), order });
+          await F.setDoc(dref('roster', id), { name: nm, subtitle: cl(sub.value, 60), snapchat: cl(sn.value, 40).replace(/^@/, ''), image: cl(im.value, 200), description: cl(ds.value, 600), order, ...flags(ap.value) });
         }, 'Added') })));
       box.append(h('div', { class: 'acard' }, h('h2', { text: 'Reset to roster.js' }), h('p', { class: 'gsub', text: 'Replaces the whole list with the people in roster.js. Use this after you changed that file.' }),
         h('button', { class: 'ghost danger', text: 'Reset list to roster.js', onclick: async () => { if (await confirmBox('Reset the list?', 'Everyone is replaced by the list in roster.js. People who are not in it disappear from all ballots.', 'Reset', 'Cancel')) run(resetRoster, 'List reset'); } })));
       S.roster.forEach((p, i) => {
-        const n2 = field('Name', p.name), s2 = field('Subtitle', p.subtitle), c2 = field('Snapchat username', p.snapchat), i2 = field('Image path', p.image), d2 = area('Description', p.description);
+        const n2 = field('Name', p.name), s2 = field('Subtitle', p.subtitle), c2 = field('Snapchat username', p.snapchat), i2 = field('Image path', p.image), d2 = area('Description', p.description), a2 = selIn(inVal(p));
         const swap = o => run(async () => { const q = S.roster[i + o]; if (!q) return; const b = F.writeBatch(db); b.update(dref('roster', p.id), { order: q.createdAt }); b.update(dref('roster', q.id), { order: p.createdAt }); await b.commit(); });
-        box.append(h('div', { class: 'acard', style: 'animation-delay:' + Math.min(i, 8) * 0.04 + 's' }, h('h2', { text: (i + 1) + '. ' + p.name }), h('div', { class: 'agrid' }, n2, s2, c2, i2), d2,
+        box.append(h('div', { class: 'acard', style: 'animation-delay:' + Math.min(i, 8) * 0.04 + 's' }, h('h2', { text: (i + 1) + '. ' + p.name }), h('div', { class: 'agrid' }, n2, s2, c2, i2), d2, a2,
           h('div', { class: 'abtns' },
             h('button', { class: 'btn', text: 'Save', onclick: () => run(async () => {
               const nm = cl(n2.value, 40); if (!nm) throw new Error('Name is required');
-              await F.setDoc(dref('roster', p.id), { name: nm, subtitle: cl(s2.value, 60), snapchat: cl(c2.value, 40).replace(/^@/, ''), image: cl(i2.value, 200), description: cl(d2.value, 600), order: p.createdAt });
+              await F.setDoc(dref('roster', p.id), { name: nm, subtitle: cl(s2.value, 60), snapchat: cl(c2.value, 40).replace(/^@/, ''), image: cl(i2.value, 200), description: cl(d2.value, 600), order: p.createdAt, ...flags(a2.value) });
             }, 'Saved') }),
             h('button', { class: 'ghost', text: 'Up', onclick: () => swap(-1) }), h('button', { class: 'ghost', text: 'Down', onclick: () => swap(1) }),
             h('button', { class: 'ghost danger', text: 'Remove', onclick: async () => {
@@ -785,7 +848,7 @@ async function adminBoot() {
       const a = document.activeElement;
       if (a && root.contains(a) && /^(INPUT|TEXTAREA)$/.test(a.tagName)) { pending = true; return; }
       pending = false;
-      const tabs = [['people', 'People · ' + S.roster.length], ['members', 'Members · ' + S.profiles.length], ['banned', 'Banned · ' + S.banned.length]];
+      const tabs = [['people', 'People · ' + S.roster.length], ['rankings', 'Rankings · ' + boardList(S.roster, S.names).length], ['members', 'Members · ' + S.profiles.length], ['banned', 'Banned · ' + S.banned.length]];
       root.className = 'panel';
       root.replaceChildren(h('div', { class: 'apanel' },
         h('div', { class: 'ahead' }, h('img', { src: 'admin-logo.png', alt: '' }), h('h1', { text: 'Admin' }), h('span', { class: 'sp' }),
@@ -794,7 +857,7 @@ async function adminBoot() {
         h('p', { class: 'gsub', text: Object.keys(S.votes).length + ' ballots in total' }),
         S.err ? h('p', { class: 'gerr', text: 'Cannot read ' + S.err + '. Publish the new firestore.rules and create the admin user in Firebase.' }) : null,
         h('div', { class: 'atabs' }, tabs.map(([k, t]) => h('button', { class: 'atab' + (S.tab === k ? ' on' : ''), text: t, onclick: () => { S.tab = k; draw(); } }))),
-        S.tab === 'people' ? peopleTab() : S.tab === 'members' ? membersTab() : bannedTab()));
+        S.tab === 'people' ? peopleTab() : S.tab === 'rankings' ? rankTab() : S.tab === 'members' ? membersTab() : bannedTab()));
     };
     root.addEventListener('focusout', () => setTimeout(() => { if (pending) draw(); }, 60));
     draw();
@@ -805,9 +868,11 @@ async function adminBoot() {
 const STEPS = [
   { t: 'Welcome to Chad Ranking', x: 'A ranking of the friend group, made by the friend group. This quick tour shows you where everything is. You can skip it any time.' },
   { tab: 'official', sel: '.tab[data-tab="official"]', t: 'Official Ranking', x: 'The combined result of every vote. It looks the same for everybody and updates live.' },
+  { tab: 'official', sel: '.boardbar', opt: true, t: 'Rankings', x: 'Switch between the General ranking and the group rankings. People with the same description are ranked together.' },
   { tab: 'official', sel: '.podium, .hero0', t: 'The podium', x: 'The top 3 by points. Tap a person to open a profile with their photo, Snapchat and averages.' },
   { tab: 'official', sel: '.pod .pp, .row .score', t: 'Points', x: 'Scores run from roughly 350 to 870. A higher score means a higher place.' },
   { tab: 'official', sel: '.tab[data-tab="mine"]', t: 'My Ranking', x: 'This is where you cast your own vote.' },
+  { tab: 'mine', sel: '.boardbar', opt: true, t: 'One list per ranking', x: 'Every ranking has its own lists. Fill in each one, then submit once.' },
   { tab: 'mine', sel: '.cols section:first-child', t: 'Rating list', x: 'Put people in your order, best at the top. Drag them or use the arrows.' },
   { tab: 'mine', sel: '.cols section:nth-child(2)', t: 'Skip list', x: 'People you do not want to judge. Move someone with the Skip and Rank buttons.' },
   { tab: 'mine', sel: '.row .rate summary', t: 'PSL and Appeal', x: 'Optional extra scores per person. PSL is looks from 1 to 8, Appeal is charm from 1 to 10. Open it to set the sliders.' },
@@ -817,25 +882,26 @@ const STEPS = [
 ];
 function startTour() {
   if (coach) return;
+  const ST = STEPS.filter(x => !x.opt || document.querySelector(x.sel));
   let i = 0, raf = 0, scrolled = -1, tw = 0;
   const shade = h('div', { class: 'cshade' }), spot = h('div', { class: 'cspot' }), tip = h('div', { class: 'ctip', role: 'dialog', 'aria-label': 'Tutorial' });
   const wrap = h('div', { id: 'coach' }, shade, spot, tip); document.body.append(wrap);
   const key = e => { if (e.key === 'Escape') end(false); else if (e.key === 'ArrowRight') next(); else if (e.key === 'ArrowLeft') back(); };
   function end(done) { cancelAnimationFrame(raf); removeEventListener('keydown', key); wrap.classList.add('out'); setTimeout(() => wrap.remove(), 300); coach = null; if (done) fx.party(); }
   coach = { end }; addEventListener('keydown', key);
-  const next = () => { if (i >= STEPS.length - 1) end(true); else { i++; draw(); } };
+  const next = () => { if (i >= ST.length - 1) end(true); else { i++; draw(); } };
   const back = () => { if (i > 0) { i--; draw(); } };
   function draw() {
-    const s = STEPS[i], last = i === STEPS.length - 1;
+    const s = ST[i], last = i === ST.length - 1;
     if (s.tab && tab !== s.tab) location.hash = '#' + s.tab;
     scrolled = -1;
-    tip.replaceChildren(h('div', { class: 'cin' }, h('div', { class: 'cbar' }, h('i', { style: '--w:' + ((i + 1) / STEPS.length * 100) + '%' })), h('h3', { text: s.t }), h('p', { text: s.x }),
-      h('div', { class: 'cbtn' }, last ? null : h('button', { class: 'ghost', text: 'Skip', onclick: () => end(false) }), h('span', { class: 'sp', text: (i + 1) + ' / ' + STEPS.length }),
+    tip.replaceChildren(h('div', { class: 'cin' }, h('div', { class: 'cbar' }, h('i', { style: '--w:' + ((i + 1) / ST.length * 100) + '%' })), h('h3', { text: s.t }), h('p', { text: s.x }),
+      h('div', { class: 'cbtn' }, last ? null : h('button', { class: 'ghost', text: 'Skip', onclick: () => end(false) }), h('span', { class: 'sp', text: (i + 1) + ' / ' + ST.length }),
         i ? h('button', { class: 'ghost', text: 'Back', onclick: back }) : null, h('button', { class: 'btn', text: last ? 'Finish' : 'Next', onclick: next }))));
   }
   function place() {
     raf = requestAnimationFrame(place);
-    const s = STEPS[i]; let el = s.sel ? document.querySelector(s.sel) : null;
+    const s = ST[i]; let el = s.sel ? document.querySelector(s.sel) : null;
     if (el && el.getClientRects().length === 0) el = null;
     if (el && scrolled !== i) { scrolled = i; const b = el.getBoundingClientRect(); if (b.top < 80 || b.bottom > innerHeight - 140) el.scrollIntoView({ block: 'center', behavior: RM ? 'auto' : 'smooth' }); }
     wrap.classList.toggle('dark', !el);

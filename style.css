@@ -248,6 +248,11 @@ body.gated .adminlink,body.admin .adminlink,body.admin main{display:none}
 .foldbox .row:nth-child(2){transition-delay:.17s,.1s}.foldbox .row:nth-child(3){transition-delay:.22s,.15s}
 .foldbox .m1{--m:#ffd23f}.foldbox .m2{--m:#aebbd8}.foldbox .m3{--m:#d98a4a}
 .foldbox .rk{color:var(--m)}
+/* ranking switcher */
+.boardbar{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 14px;margin:-8px 0 6px;scrollbar-width:none}.boardbar::-webkit-scrollbar{display:none}
+.bchip{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:9px 16px;border-radius:99px;font:700 .88rem var(--body);cursor:pointer;transition:transform .25s cubic-bezier(.3,1.6,.5,1),background-color .25s,color .25s,box-shadow .25s}
+.bchip:hover{transform:translateY(-3px)}
+.bchip.on{background:var(--accent);color:var(--accent-ink);border-color:transparent;box-shadow:0 8px 24px color-mix(in srgb,var(--accent) 45%,transparent);transform:scale(1.05)}
 /* login gate + admin */
 .gbtn{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:13px 14px;border-radius:14px;border:1px solid #dadce0;background:#fff;color:#1f1f1f;font:700 .95rem var(--body);cursor:pointer;transition:transform .2s,box-shadow .2s}
 .gbtn:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,.3)}.gbtn svg{width:20px;height:20px}

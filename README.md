@@ -21,3 +21,6 @@ Upload into `images/` and put the path (e.g. `images/thor.jpg`) in the admin pag
 
 ## Forcing the list from roster.js
 Change `ROSTER_VERSION` at the top of `roster.js` (any new text) and commit. From then on the site shows the list from `roster.js` for everybody, and the admin page copies it into the database the next time you open `#admin`. Without changing it, the admin's edits in the database win.
+
+## Rankings
+Besides the General ranking, every description shared by 2 or more people becomes its own ranking (voters switch with the buttons at the top). In the admin page, People: choose per person where they appear (General, group, or both). Admin > Rankings: rename the rankings. Publish the new `firestore.rules` for this to work.
